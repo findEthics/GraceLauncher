@@ -129,6 +129,7 @@ fun ShortcutPopup(
                     app, notification,
                     onOpen = { if (actions.openNotification(notification.key, notification.revision)) onDismiss() },
                     onDismiss = { actions.dismissNotification(notification.key, notification.revision) },
+                    onReply = actions.replyNotification,
                     modifier = Modifier.animateItem(),
                     gesturesEnabled = !reveal.dragging && reveal.expanded,
                 )
@@ -238,7 +239,7 @@ internal fun SwipeRevealPanel(
         if (!reveal.dragging && !reveal.expanded && !spatial.isRunning && spatial.value == 0f) currentOnDismiss()
     }
     var origin by remember { mutableStateOf(Offset.Zero) }
-    Box(Modifier.fillMaxSize().onGloballyPositioned { origin = it.boundsInWindow().topLeft }) {
+    Box(Modifier.fillMaxSize().imePadding().onGloballyPositioned { origin = it.boundsInWindow().topLeft }) {
         Box(Modifier.matchParentSize().clickable(
             interactionSource = remember { MutableInteractionSource() }, indication = null,
             onClick = { reveal.expanded = false },

@@ -113,6 +113,16 @@ fun AppIcon(app: LauncherApp, modifier: Modifier = Modifier, size: Dp = 38.dp, a
                 )
             }
         }
+        if (app.isWorkProfile) {
+            val badgeSize = displaySize * 0.42f
+            val description = stringResource(R.string.work_profile_badge)
+            Box(Modifier.align(Alignment.BottomEnd).size(badgeSize).semantics { contentDescription = description }
+                .testTag("work_indicator:${app.key}")
+                .background(MaterialTheme.colorScheme.surface, CircleShape)
+                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), CircleShape), contentAlignment = Alignment.Center) {
+                LauncherIcon(LauncherSymbol.Work, Modifier.size(badgeSize * 0.72f), MaterialTheme.colorScheme.primary)
+            }
+        }
         if (app.isPrivateSpace && app.showPrivateIndicator) {
             val badgeSize = displaySize * 0.42f
             Box(Modifier.align(Alignment.BottomEnd).size(badgeSize).testTag("private_indicator:${app.key}")
@@ -163,7 +173,7 @@ fun LauncherAppRow(
         detailsDescription = stringResource(R.string.app_actions),
         modifier = modifier,
         highlighted = highlighted,
-        notification = notification.takeIf { app.shortcut == null && !app.isPrivateSpace },
+        notification = notification.takeIf { app.shortcut == null && app.user == null && app.userSerial == null && !app.isPrivateSpace },
         showLabel = showLabel,
     ) { iconModifier -> AppIcon(app, modifier = iconModifier, size = 40.dp) }
 }

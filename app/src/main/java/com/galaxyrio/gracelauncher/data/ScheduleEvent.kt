@@ -45,13 +45,22 @@ fun agendaDays(
     return days
 }
 
-fun nextVisibleEvent(
+fun visibleScheduleEvents(
     events: List<ScheduleEvent>,
     now: Instant,
     zone: ZoneId = ZoneId.systemDefault(),
-): ScheduleEvent? = events
-    .filter { it.localBoundary(it.endsAt, zone).isAfter(now) }
-    .minByOrNull { it.localBoundary(it.startsAt, zone) }
+): List<ScheduleEvent> {
+    val horizon = now.plus(Duration.ofHours(24))
+    return events.filter { event ->
+        val start = event.localBoundary(event.startsAt, zone)
+        val end = event.localBoundary(event.endsAt, zone)
+        when {
+            end.isAfter(start) -> start.isBefore(horizon) && end.isAfter(now)
+            end == start -> !start.isBefore(now) && start.isBefore(horizon)
+            else -> false
+        }
+    }.sortedBy { it.localBoundary(it.startsAt, zone) }
+}
 
 fun eventCountdown(
     event: ScheduleEvent,

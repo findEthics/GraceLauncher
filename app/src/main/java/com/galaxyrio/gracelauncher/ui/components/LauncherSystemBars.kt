@@ -3,7 +3,6 @@ package com.galaxyrio.gracelauncher.ui.components
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
-import android.app.Activity
 import android.graphics.Color
 import android.os.Build
 import android.os.CancellationSignal
@@ -11,6 +10,7 @@ import android.view.View
 import android.view.ViewTreeObserver
 import android.view.Window
 import android.view.animation.DecelerateInterpolator
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.areStatusBarsVisible
@@ -24,7 +24,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsAnimationControlListenerCompat
@@ -43,7 +42,7 @@ internal fun rememberLauncherSystemBars(
     darkIcons: Boolean,
     allowPullDown: Boolean,
 ): NestedScrollConnection {
-    val window = (LocalContext.current as? Activity)?.window
+    val window = LocalActivity.current?.window
     val view = LocalView.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val bars = remember(window, view) { window?.let { LauncherStatusBar(it, view, autoHide) } }

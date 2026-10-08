@@ -76,35 +76,40 @@ internal fun ProductivitySettings(
             item {
                 SettingsActionItem(
                     stringResource(R.string.settings_clock), clockAppSummary(uiState),
-                    0, 6, "settings_clock",
+                    0, 5, "settings_clock",
                 ) { navigate(SettingsPage.Clock) }
             }
             item {
                 SettingsActionItem(
                     stringResource(R.string.settings_calendar_agenda), stringResource(R.string.settings_calendar_agenda_summary),
-                    1, 6, "calendar_agenda",
+                    1, 5, "calendar_agenda",
                 ) { navigate(SettingsPage.Calendar) }
             }
             item {
                 SettingsActionItem(
                     stringResource(R.string.settings_weather),
                     stringResource(if (settings.weatherEnabled) R.string.weather_settings_enabled_summary else R.string.weather_settings_disabled_summary),
-                    2, 6, "settings_weather",
+                    2, 5, "settings_weather",
                 ) { navigate(SettingsPage.Weather) }
             }
             item {
                 SettingsActionItem(
                     stringResource(R.string.settings_media_player), stringResource(R.string.media_player_summary),
-                    3, 6, "settings_media_player",
+                    3, 5, "settings_media_player",
                 ) { navigate(SettingsPage.MediaPlayer) }
             }
             item {
                 SettingsActionItem(stringResource(R.string.settings_search), stringResource(R.string.search_settings_summary),
-                    4, 6, "settings_open_search") { navigate(SettingsPage.Search) }
+                    4, 5, "settings_open_search") { navigate(SettingsPage.Search) }
             }
+            item { SettingsHeading(stringResource(R.string.settings_home_gestures)) }
             item {
-                SettingsActionItem(stringResource(R.string.settings_grace_button), null,
-                    5, 6, "settings_grace_button") { navigate(SettingsPage.GraceButton) }
+                SettingsActionItem(
+                    stringResource(R.string.double_tap_lock_title), stringResource(R.string.double_tap_lock_summary),
+                    0, 1, "settings_double_tap_lock",
+                    trailing = { LauncherIcon(LauncherSymbol.Outbound) },
+                    onClick = actions.openAccessibilitySettings,
+                )
             }
             item {
                 Spacer(Modifier.height(12.dp))

@@ -11,13 +11,6 @@
     <string name="media_idle_title">暂无播放内容</string>
     <string name="media_idle_summary">点击播放以继续</string>
     <string name="settings_none">无</string>
-    <string name="settings_grace_button">Grace 按钮</string>
-    <string name="grace_button_enable">启用 Grace 按钮</string>
-    <string name="grace_button_tap">单击动作</string>
-    <string name="grace_button_long_press">长按动作</string>
-    <string name="grace_button_open_app">打开应用</string>
-    <string name="grace_button_open_shortcut">打开快捷方式</string>
-    <string name="grace_button_disabled">禁用</string>
     <string name="shortcuts_title">快捷方式</string>
     <string name="shortcuts_search">搜索快捷方式</string>
     <string name="shortcuts_load_partial">部分快捷方式未能加载</string>
@@ -137,7 +130,6 @@
     <!-- 搜索与应用列表 -->
     <string name="search_apps">搜索应用</string>
     <string name="search_no_results">没有匹配的应用</string>
-    <string name="launcher_fab_description">搜索应用，长按打开设置。</string>
     <string name="drawer_folders">文件夹</string>
     <string name="recently_installed">最近安装</string>
     <string name="add_to_folder">添加到文件夹</string>
@@ -165,6 +157,12 @@
     <string name="notification_days">%1$d天前</string>
     <string name="notification_unavailable">这条通知已不可用</string>
     <string name="notification_allow">显示应用通知</string>
+    <string name="notification_reply">回复</string>
+    <string name="notification_reply_input">回复消息</string>
+    <string name="notification_reply_send">发送</string>
+    <string name="notification_reply_cancel">取消</string>
+    <string name="notification_reply_failed">回复发送失败，草稿仍然保留。</string>
+    <string name="notification_reply_unlock">解锁设备后即可回复。</string>
 
     <!-- 媒体 -->
     <string name="media_service_name">Grace Launcher 通知与媒体</string>
@@ -194,7 +192,8 @@
     <string name="settings_about_summary">Grace Launcher、更新与许可证</string>
     <string name="settings_instant_access">即时访问</string>
     <string name="settings_calendar_agenda">日历日程</string>
-    <string name="settings_calendar_agenda_summary">在主屏幕显示下一项日程</string>
+    <string name="settings_calendar_agenda_summary">在主屏幕显示未来24小时内的日历日程</string>
+    <string name="calendar_untitled_event">未命名日程</string>
     <string name="settings_weather">天气</string>
     <string name="settings_media_player">媒体播放器</string>
     <string name="settings_coming_soon">即将推出</string>

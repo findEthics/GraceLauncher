@@ -1,9 +1,14 @@
 package com.galaxyrio.gracelauncher.data.notifications
 
+import android.app.KeyguardManager
 import android.app.Notification
 import android.app.PendingIntent
+import android.app.RemoteInput
 import android.content.Context
+import android.content.Intent
 import android.graphics.drawable.Icon
+import android.os.Build
+import android.os.Bundle
 import android.os.Process
 import android.service.notification.StatusBarNotification
 import androidx.annotation.MainThread
@@ -23,16 +28,34 @@ data class AppNotification(
     val canDismiss: Boolean,
     val canOpen: Boolean,
     val icon: Icon? = null,
+    val canReply: Boolean = false,
 )
+
+enum class NotificationReplyResult {
+    Dispatched,
+    Unavailable,
+    DeviceLocked,
+    InvalidText,
+    Failed,
+}
+
+internal fun replyBlockedByKeyguard(requiresAuthentication: Boolean, isDeviceLocked: Boolean): Boolean =
+    requiresAuthentication && isDeviceLocked
 
 @MainThread
 internal class AppNotificationStore {
+    private data class ReplyAction(
+        val pendingIntent: PendingIntent,
+        val remoteInputs: List<RemoteInput>,
+        val requiresAuthentication: Boolean,
+    )
     private data class Entry(
         val display: AppNotification,
         val groupKey: String,
         val summary: Boolean,
         val contentIntent: PendingIntent?,
         val autoCancel: Boolean,
+        val replyAction: ReplyAction?,
     )
     private val entries = linkedMapOf<String, Entry>()
     private var cancel: ((String) -> Boolean)? = null
@@ -80,6 +103,31 @@ internal class AppNotificationStore {
         }.isSuccess
     }
 
+    fun reply(context: Context, key: String, revision: Long, text: String): NotificationReplyResult {
+        if (text.isBlank()) return NotificationReplyResult.InvalidText
+        if (cancel == null) return NotificationReplyResult.Unavailable
+        val entry = entries[key]?.takeIf {
+            it.display.revision == revision && it.display.canReply && visible(key)
+        } ?: return NotificationReplyResult.Unavailable
+        val action = entry.replyAction ?: return NotificationReplyResult.Unavailable
+        if (replyBlockedByKeyguard(action.requiresAuthentication,
+                context.getSystemService(KeyguardManager::class.java)?.isDeviceLocked == true))
+            return NotificationReplyResult.DeviceLocked
+
+        return try {
+            val results = Bundle().apply { action.remoteInputs.forEach { putCharSequence(it.resultKey, text) } }
+            val intent = Intent()
+            RemoteInput.addResultsToIntent(action.remoteInputs.toTypedArray(), intent, results)
+            RemoteInput.setResultsSource(intent, RemoteInput.SOURCE_FREE_FORM_INPUT)
+            action.pendingIntent.send(context, 0, intent)
+            NotificationReplyResult.Dispatched
+        } catch (_: PendingIntent.CanceledException) {
+            NotificationReplyResult.Failed
+        } catch (_: RuntimeException) {
+            NotificationReplyResult.Failed
+        }
+    }
+
     private fun publish() {
         val eligible = entries.values.filter { visible(it.display.key) }
         val groupsWithChildren = eligible.filterNot { it.summary }.map { it.display.packageName to it.groupKey }.toSet()
@@ -108,14 +156,28 @@ internal class AppNotificationStore {
             else -> extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
         }.trim()
         if (title.isBlank() && body.isBlank()) return null
+        // ponytail: first free-form action only; add a chooser if apps expose multiple reply targets.
+        val replyAction = notification.actions.orEmpty().firstNotNullOfOrNull { action ->
+            runCatching {
+                val pendingIntent = action.actionIntent ?: return@runCatching null
+                val inputs = action.remoteInputs.orEmpty().filter {
+                    it.allowFreeFormInput && !it.isDataOnly && it.resultKey.isNotBlank()
+                }
+                if (inputs.isEmpty() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && pendingIntent.isImmutable))
+                    return@runCatching null
+                ReplyAction(pendingIntent, inputs,
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && action.isAuthenticationRequired)
+            }.getOrNull()
+        }
         Entry(
             display = AppNotification(sbn.key, sbn.packageName, title.take(256), body.take(8192),
                 sbn.postTime, ++revision, sbn.isClearable, notification.contentIntent != null,
-                notification.getLargeIcon()),
+                notification.getLargeIcon(), canReply = replyAction != null),
             groupKey = sbn.groupKey,
             summary = notification.flags and Notification.FLAG_GROUP_SUMMARY != 0,
             contentIntent = notification.contentIntent,
             autoCancel = notification.flags and Notification.FLAG_AUTO_CANCEL != 0,
+            replyAction = replyAction,
         )
     }.getOrNull()
 }

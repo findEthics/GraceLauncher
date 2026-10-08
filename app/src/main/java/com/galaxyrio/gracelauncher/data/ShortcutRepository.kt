@@ -69,6 +69,12 @@ class ShortcutRepository(context: Context) : AutoCloseable {
         override fun onPackagesUnavailable(packages: Array<out String>, user: UserHandle, replacing: Boolean) {
             packages.forEach(::invalidate)
         }
+        override fun onPackagesSuspended(packages: Array<out String>, user: UserHandle) {
+            packages.forEach(::invalidate)
+        }
+        override fun onPackagesUnsuspended(packages: Array<out String>, user: UserHandle) {
+            packages.forEach(::invalidate)
+        }
         override fun onShortcutsChanged(packageName: String, shortcuts: MutableList<ShortcutInfo>, user: UserHandle) {
             invalidate(packageName)
         }
@@ -85,12 +91,14 @@ class ShortcutRepository(context: Context) : AutoCloseable {
             cache.invalidate()
             return ShortcutResult(ShortcutStatus.DefaultLauncherRequired)
         }
-        return cache.peek(app.queryKey())
+        val key = app.queryKey() ?: return ShortcutResult(ShortcutStatus.Error)
+        return cache.peek(key)
     }
 
     suspend fun shortcutsFor(app: LauncherApp): ShortcutResult {
         peek(app)?.let { return it }
-        val result = cache.get(app.queryKey())
+        val key = app.queryKey() ?: return ShortcutResult(ShortcutStatus.Error)
+        val result = cache.get(key)
         // The HOME role can be revoked while a Binder query is running.
         if (!hasAccess()) {
             cache.invalidate()
@@ -105,11 +113,14 @@ class ShortcutRepository(context: Context) : AutoCloseable {
             cache.invalidate()
             return@coroutineScope
         }
-        apps.distinctBy { it.key }.forEach { app -> launch { shortcutsFor(app) } }
+        apps.filterNot { it.userSerial != null && it.user == null }.distinctBy { it.key }
+            .forEach { app -> launch { shortcutsFor(app) } }
     }
 
-    private fun LauncherApp.queryKey() = QueryKey(packageName, componentName.flattenToString(),
-        user ?: this@ShortcutRepository.user, userSerial, isPrivateSpace)
+    private fun LauncherApp.queryKey(): QueryKey? {
+        if (userSerial != null && user == null) return null
+        return QueryKey(packageName, componentName.flattenToString(), user ?: this@ShortcutRepository.user, userSerial, isPrivateSpace)
+    }
 
     private fun invalidate(packageName: String) {
         cache.invalidate { it.packageName == packageName }
@@ -152,14 +163,18 @@ class ShortcutRepository(context: Context) : AutoCloseable {
         }
     }
 
-    fun launch(shortcut: LauncherShortcut, sourceBounds: Rect? = null, options: Bundle? = null): Boolean = runCatching {
-        launcherApps.startShortcut(shortcut.packageName, shortcut.id, sourceBounds, options, shortcut.user ?: user)
-    }.isSuccess
+    fun launch(shortcut: LauncherShortcut, sourceBounds: Rect? = null, options: Bundle? = null): Boolean {
+        val targetUser = shortcut.user ?: if (shortcut.userSerial == null) user else return false
+        return runCatching {
+            launcherApps.startShortcut(shortcut.packageName, shortcut.id, sourceBounds, options, targetUser)
+        }.isSuccess
+    }
 
     /** Preserve dynamic shortcuts once the user adds them to a persistent surface. */
     suspend fun pin(shortcuts: List<LauncherShortcut>) = withContext(Dispatchers.IO) {
         if (!hasAccess()) return@withContext
-        shortcuts.groupBy { it.packageName to (it.user ?: user) }.forEach { (target, entries) ->
+        shortcuts.filterNot { it.userSerial != null && it.user == null }
+            .groupBy { it.packageName to (it.user ?: user) }.forEach { (target, entries) ->
             val (pkg, targetUser) = target
             runCatching {
                 val existing = launcherApps.getShortcuts(LauncherApps.ShortcutQuery().setPackage(pkg)

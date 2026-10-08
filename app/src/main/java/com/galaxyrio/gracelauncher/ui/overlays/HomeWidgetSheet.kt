@@ -1,6 +1,9 @@
 package com.galaxyrio.gracelauncher.ui.overlays
 
+import android.appwidget.AppWidgetManager
 import android.content.ComponentName
+import android.os.Process
+import android.os.UserHandle
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -8,9 +11,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -27,13 +32,16 @@ import com.galaxyrio.gracelauncher.ui.components.LauncherSymbol
 
 @Composable
 internal fun HomeWidgetSheet(uiState: LauncherUiState, actions: LauncherActions, onChange: (LauncherOverlay?) -> Unit, custom: Boolean) {
+    val context = LocalContext.current
     val settings = uiState.settings
     val widget = settings.homeLayout
     val component = widget.widgetProvider?.let(ComponentName::unflattenFromString)
-    val app = component?.let { provider ->
-        uiState.apps.firstOrNull { it.packageName == provider.packageName }
-            ?: LauncherApp(provider, widget.widgetLabel ?: provider.packageName, null)
+    val providerInfo = remember(context, widget.widgetId, component) {
+        if (widget.widgetId < 0 || component == null) null
+        else runCatching { AppWidgetManager.getInstance(context).getAppWidgetInfo(widget.widgetId) }
+            .getOrNull()?.takeIf { it.provider == component }
     }
+    val app = providerInfo?.let { info -> resolveWidgetProviderApp(info.provider, info.profile, uiState.apps) }
     fun navigate(page: String) { onChange(LauncherOverlay.SettingsDestination(page)) }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
         .padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 12.dp)) {
@@ -70,6 +78,12 @@ internal fun HomeWidgetSheet(uiState: LauncherUiState, actions: LauncherActions,
         WidgetAction(LauncherSymbol.Settings, stringResource(R.string.grace_settings), arrow = !custom) { onChange(LauncherOverlay.Settings) }
     }
 }
+
+internal fun resolveWidgetProviderApp(provider: ComponentName, profile: UserHandle, apps: List<LauncherApp>): LauncherApp? =
+    apps.firstOrNull {
+        it.shortcut == null && it.packageName == provider.packageName &&
+            (it.user ?: Process.myUserHandle()) == profile
+    }
 
 @Composable
 private fun WidgetAction(symbol: LauncherSymbol, label: String, summary: String? = null, arrow: Boolean = false, onClick: () -> Unit) {

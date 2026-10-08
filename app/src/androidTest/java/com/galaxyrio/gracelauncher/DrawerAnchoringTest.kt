@@ -228,7 +228,7 @@ class DrawerAnchoringTest {
     }
 
     private fun drawerChild(tag: String) = compose.onNode(
-        hasTestTag(tag) and hasAnyAncestor(hasTestTag("app_drawer")),
+        hasTestTag(tag) and hasAnyAncestor(hasTestTag("app_drawer")), useUnmergedTree = true,
     )
 
     private fun bounds(node: SemanticsNodeInteraction) = node.fetchSemanticsNode().boundsInRoot

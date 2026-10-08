@@ -200,8 +200,7 @@ fun LauncherOverlays(
         ShortcutPopup(
             app = overlay.app, anchor = overlay.anchor, hasAccess = uiState.hasShortcutAccess, actions = actions,
             reveal = overlay.reveal,
-            notifications = if (overlay.app.shortcut == null && !overlay.app.isPrivateSpace)
-                uiState.notifications[overlay.app.packageName].orEmpty() else emptyList(),
+            notifications = uiState.notificationsFor(overlay.app),
             uiState = uiState,
             onEdit = { onChange(LauncherOverlay.EditPopup(overlay.app)) },
             onDetails = { onChange(LauncherOverlay.AppDetails(it, overlay.app)) },

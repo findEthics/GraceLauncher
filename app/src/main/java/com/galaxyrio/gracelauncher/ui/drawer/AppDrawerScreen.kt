@@ -3,9 +3,14 @@ package com.galaxyrio.gracelauncher.ui.drawer
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.safeDrawing
@@ -41,6 +46,8 @@ import com.galaxyrio.gracelauncher.data.notifications.AppNotification
 import com.galaxyrio.gracelauncher.R
 import com.galaxyrio.gracelauncher.ui.components.AppRowGestures
 import com.galaxyrio.gracelauncher.ui.components.LauncherAppRow
+import com.galaxyrio.gracelauncher.ui.components.LauncherIcon
+import com.galaxyrio.gracelauncher.ui.components.LauncherSymbol
 import com.galaxyrio.gracelauncher.ui.components.FolderRow
 import com.galaxyrio.gracelauncher.ui.components.LauncherLayout
 import com.galaxyrio.gracelauncher.ui.components.stableStatusBarInset
@@ -63,7 +70,7 @@ fun AppDrawerScreen(
     onEditFolder: (LauncherFolder) -> Unit = {},
     onFolderDrag: (LauncherFolder, Rect, Boolean) -> Unit = { _, _, _ -> },
     onFolderDragEnd: (Boolean) -> Unit = {},
-    notifications: Map<String, List<AppNotification>> = emptyMap(),
+    notificationsFor: (LauncherApp) -> List<AppNotification> = { emptyList() },
     folderApps: Map<String, LauncherApp> = emptyMap(),
     privateExpanded: Boolean = false,
     privateAppsPublic: Boolean = false,
@@ -117,7 +124,7 @@ fun AppDrawerScreen(
         items(
             items = model.items,
             key = DrawerItem::key,
-            contentType = { when (it) { is DrawerItem.Header -> "header"; is DrawerItem.App, is DrawerItem.PrivateApp -> "app"; is DrawerItem.Folder -> "folder"; DrawerItem.PrivateStatus -> "status" } },
+            contentType = { when (it) { is DrawerItem.Header -> "header"; is DrawerItem.App, is DrawerItem.PrivateApp -> "app"; is DrawerItem.Folder -> "folder"; DrawerItem.PrivateStatus, DrawerItem.WorkProfileStatus -> "status" } },
         ) { item ->
             // Keep every item's key and measured height. Hiding a group must
             // not change scroll bounds or move the selected header on release.
@@ -149,7 +156,7 @@ fun AppDrawerScreen(
                         onSwipeRight = { onAppShortcuts(item.app, it) },
                         gestures = rowGestures,
                         highlighted = highlightedAppKey == item.app.key,
-                        notification = notifications[item.app.packageName]?.firstOrNull(),
+                        notification = notificationsFor(item.app).firstOrNull(),
                     )
                     is DrawerItem.Folder -> FolderRow(
                         folder = item.folder,
@@ -175,6 +182,15 @@ fun AppDrawerScreen(
                         if (!privateLoading) TextButton(onClick = if (privateFailed) onRetryPrivateSpace else onPrivateSpaceSettings) {
                             Text(stringResource(if (privateFailed) R.string.retry else R.string.private_space_setup), color = appearance.text)
                         }
+                    }
+                    DrawerItem.WorkProfileStatus -> Row(
+                        Modifier.fillMaxWidth().padding(start = LauncherLayout.ContentInset, top = 8.dp, bottom = 16.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        LauncherIcon(LauncherSymbol.Work, Modifier.size(22.dp), appearance.text)
+                        Spacer(Modifier.width(12.dp))
+                        Text(stringResource(R.string.work_profile_unavailable), Modifier.testTag("work_profile_unavailable"),
+                            color = appearance.text, style = MaterialTheme.typography.bodyMedium.copy(shadow = appearance.textShadow))
                     }
                 }
             }

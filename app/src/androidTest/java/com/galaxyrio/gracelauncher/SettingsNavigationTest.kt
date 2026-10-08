@@ -7,6 +7,7 @@ import androidx.activity.BackEventCompat
 import androidx.activity.OnBackPressedDispatcher
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.test.*
@@ -128,7 +129,7 @@ class SettingsNavigationTest {
 
     @Test fun searchBackCancelKeepsQueryAndCommitReturnsToHome() {
         showLauncher(drawer = false)
-        compose.onNodeWithTag("launcher_fab").performClick()
+        openSearchFromBackground()
         compose.onNodeWithTag("app_search_query").performTextReplacement("cal")
         compose.runOnIdle { keyboard?.hide() }
         beginGesture(0.5f)
@@ -188,6 +189,16 @@ class SettingsNavigationTest {
         compose.runOnUiThread { dispatcher.onBackPressed() }
         compose.mainClock.autoAdvance = true
         compose.waitForIdle()
+    }
+
+    private fun openSearchFromBackground() {
+        compose.onNodeWithTag("home_gesture_surface").performTouchInput {
+            val start = Offset(width * 0.9f, height * 0.9f)
+            down(start)
+            moveTo(Offset(start.x, height * 0.62f), delayMillis = 180)
+            up()
+        }
+        compose.onNodeWithTag("app_search").assertIsDisplayed()
     }
 
     private fun screenshot(name: String) {

@@ -3,6 +3,9 @@ package com.galaxyrio.gracelauncher
 import android.content.ComponentName
 import android.graphics.Bitmap
 import android.util.Log
+import androidx.activity.BackEventCompat
+import androidx.activity.OnBackPressedDispatcher
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,6 +14,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -24,11 +28,11 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.printToString
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.galaxyrio.gracelauncher.data.FolderPlacement
@@ -62,9 +66,11 @@ class LauncherSettingsIntegrationTest {
     }
     private lateinit var state: MutableState<LauncherUiState>
     private val launched = mutableListOf<String>()
+    private lateinit var dispatcher: OnBackPressedDispatcher
     private var keyboard: SoftwareKeyboardController? = null
     private var themePrimary = Color.Unspecified
     private var themeSurface = Color.Unspecified
+    private var accessibilitySettingsRequests = 0
 
     private fun fixture() = LauncherUiState(
         apps = apps, favoriteKeys = setOf(apps.first().key), isLoadingApps = false,
@@ -76,6 +82,7 @@ class LauncherSettingsIntegrationTest {
         state = mutableStateOf(initial)
         compose.setContent {
             val current = state.value
+            val backDispatcher = requireNotNull(LocalOnBackPressedDispatcherOwner.current).onBackPressedDispatcher
             val keyboardController = LocalSoftwareKeyboardController.current
             GraceLauncherTheme(
                 darkTheme = current.settings.darkMode == ThemeMode.Dark,
@@ -83,7 +90,12 @@ class LauncherSettingsIntegrationTest {
                 seedColor = Color(current.settings.themeColor),
             ) {
                 val colors = MaterialTheme.colorScheme
-                SideEffect { keyboard = keyboardController; themePrimary = colors.primary; themeSurface = colors.surface }
+                SideEffect {
+                    dispatcher = backDispatcher
+                    keyboard = keyboardController
+                    themePrimary = colors.primary
+                    themeSurface = colors.surface
+                }
                 Box(Modifier.fillMaxSize().background(Color(0xFF152431))) {
                     LauncherScreen(
                         uiState = current, onDateClick = {}, onClockClick = {},
@@ -109,6 +121,7 @@ class LauncherSettingsIntegrationTest {
                             deleteFolder = { id -> state.value = state.value.copy(folders = state.value.folders.filterNot { it.id == id }) },
                             textMode = { state.value = state.value.copy(textMode = it) },
                             themedIcons = { state.value = state.value.copy(themedIcons = it) },
+                            openAccessibilitySettings = { accessibilitySettingsRequests++ },
                         ),
                     )
                 }
@@ -117,9 +130,9 @@ class LauncherSettingsIntegrationTest {
     }
 
     @Test
-    fun fabSearchIncludesHiddenAppsAndLaunchesTheFilteredResult() {
+    fun backgroundSearchIncludesHiddenAppsAndLaunchesTheFilteredResult() {
         showLauncher(fixture().copy(hiddenAppKeys = setOf(apps.last().key)))
-        compose.onNodeWithTag("launcher_fab").performClick()
+        openSearchFromBackground()
         compose.onNodeWithTag("app_search").assertIsDisplayed()
         compose.onNodeWithTag("settings_root").assertDoesNotExist()
         compose.onNodeWithTag("launcher_sheet").assertDoesNotExist()
@@ -138,7 +151,7 @@ class LauncherSettingsIntegrationTest {
     }
 
     @Test
-    fun fabLongPressOpensFullScreenSettingsAndEachCategoryNavigatesBack() {
+    fun graceSettingsOpensFullScreenSettingsAndEachCategoryNavigatesBack() {
         showLauncher()
         val viewport = compose.onRoot().fetchSemanticsNode().boundsInRoot
         openSettings()
@@ -162,13 +175,27 @@ class LauncherSettingsIntegrationTest {
     }
 
     @Test
-    fun fabSearchStillRespondsToTheFirstTapAfterLeavingLongPressSettings() {
+    fun backgroundSearchStillWorksAfterLeavingSettings() {
         showLauncher()
         openSettings()
         settingsBack()
         compose.onNodeWithTag("home_clock").assertIsDisplayed()
-        compose.onNodeWithTag("launcher_fab").performClick()
+        openSearchFromBackground()
         compose.onNodeWithTag("app_search").assertIsDisplayed()
+    }
+
+    @Test
+    fun doubleTapLockSetupDisclosesItsScopeAndLinksToAccessibilitySettings() {
+        showLauncher()
+        openSettings()
+        clickSetting("settings_root", "settings_category_productivity")
+        compose.onNodeWithTag("settings_productivity").assertIsDisplayed()
+        compose.onNodeWithTag("settings_list").performScrollToNode(hasTestTag("settings_double_tap_lock"))
+        val setup = compose.onNodeWithTag("settings_double_tap_lock").assertIsDisplayed()
+        compose.onNodeWithText(InstrumentationRegistry.getInstrumentation().targetContext
+            .getString(R.string.double_tap_lock_summary)).assertIsDisplayed()
+        setup.performClick()
+        assertEquals(1, accessibilitySettingsRequests)
     }
 
     @Test
@@ -184,7 +211,7 @@ class LauncherSettingsIntegrationTest {
     }
 
     @Test
-    fun productivityTogglesRemoveAgendaAndBatteryFromTheHomeHeader() {
+    fun disablingCalendarWithoutWeatherRemovesTheDateAndAgenda() {
         val now = Instant.now()
         showLauncher(fixture().copy(events = listOf(
             ScheduleEvent(1, "Movie night", now.plusSeconds(1800), now.plusSeconds(7200), false, null, null),
@@ -193,17 +220,36 @@ class LauncherSettingsIntegrationTest {
         openSettings()
         clickSetting("settings_root", "settings_category_productivity")
         clickSetting("settings_productivity", "calendar_agenda")
-        clickSetting("settings_productivity", "show_battery")
+        clickSetting("settings_calendar", "calendar_agenda")
+        compose.runOnIdle { assertFalse(state.value.settings.calendarAgenda) }
+        settingsBack()
+        settingsBack()
+        settingsBack()
+
+        compose.onNodeWithTag("home_clock").assertIsDisplayed()
+        compose.onNodeWithTag("schedule_line").assertDoesNotExist()
+        compose.onNodeWithTag("home_date").assertDoesNotExist()
+    }
+
+    @Test
+    fun batteryToggleRemovesPercentageWhileCalendarRemainsEnabled() {
+        showLauncher()
+        openSettings()
+        clickSetting("settings_root", "settings_category_productivity")
+        clickSetting("settings_productivity", "calendar_agenda")
+        clickSetting("settings_calendar", "show_battery")
         compose.runOnIdle {
-            assertFalse(state.value.settings.calendarAgenda)
+            assertTrue(state.value.settings.calendarAgenda)
             assertFalse(state.value.settings.showBatteryPercentage)
         }
         settingsBack()
         settingsBack()
-        compose.onNodeWithTag("schedule_line").assertDoesNotExist()
+        settingsBack()
+
+        compose.onNodeWithTag("home_clock").assertIsDisplayed()
         val date = compose.onNodeWithTag("home_date").fetchSemanticsNode()
             .config[SemanticsProperties.Text].joinToString { it.text }
-        assertFalse("Battery percentage must disappear without removing the date", date.contains('%'))
+        assertFalse("The disabled battery display must leave the date intact", date.contains('%'))
         assertTrue(date.isNotBlank())
         saveScreenshot("settings-home-agenda-battery-disabled.png")
     }
@@ -241,20 +287,13 @@ class LauncherSettingsIntegrationTest {
         compose.onNodeWithTag("settings_root").assertDoesNotExist()
         compose.onNodeWithTag("home_clock").assertIsDisplayed()
         assertEquals(listOf(apps[1].key, apps[1].key), launched)
-        val fab = compose.onNodeWithTag("launcher_fab").assertIsDisplayed()
-        Log.i("GraceSettingsDiagnostics", "After folder close; FAB=${fab.fetchSemanticsNode().boundsInRoot}")
-        fab.performClick()
-        try {
-            compose.onNodeWithTag("app_search").assertIsDisplayed()
-        } catch (failure: AssertionError) {
-            Log.e("GraceSettingsDiagnostics", compose.onRoot(useUnmergedTree = true).printToString())
-            saveScreenshot("settings-search-after-folder-failure.png")
-            throw failure
-        }
+        openSearchFromBackground()
         compose.onNodeWithTag("app_search_query").performTextReplacement("Gmail")
         compose.onNodeWithTag("app:${apps[3].key}").assertIsDisplayed()
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        compose.onNodeWithText(context.getString(R.string.cancel)).performClick()
+        compose.runOnIdle { keyboard?.hide() }
+        completeBackGesture()
+        compose.onNodeWithTag("app_search").assertDoesNotExist()
+        compose.onNodeWithTag("home_clock").assertIsDisplayed()
         compose.onNodeWithTag("alphabet:◇").performClick()
         compose.onNodeWithTag("folder:drawer").assertIsDisplayed()
         compose.onNodeWithTag("folder:home").assertDoesNotExist()
@@ -347,16 +386,49 @@ class LauncherSettingsIntegrationTest {
     }
 
     private fun openSettings() {
-        compose.onNodeWithTag("launcher_fab").performTouchInput { longClick() }
+        compose.onNodeWithTag("home_clock").performTouchInput { longClick() }
+        compose.onNodeWithText(InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.grace_settings))
+            .performScrollTo().performClick()
         compose.onNodeWithTag("settings_root").assertIsDisplayed()
+        compose.waitForIdle()
     }
 
-    private fun settingsBack() = compose.onNodeWithTag("settings_back").performClick()
+    private fun openSearchFromBackground() {
+        compose.onNodeWithTag("home_gesture_surface").performTouchInput {
+            val start = Offset(width * 0.9f, height * 0.9f)
+            down(start)
+            moveTo(Offset(start.x, height * 0.62f), delayMillis = 180)
+            up()
+        }
+        compose.onNodeWithTag("app_search").assertIsDisplayed()
+    }
+
+    private fun backEvent(progress: Float) = BackEventCompat(0f, 300f, progress, BackEventCompat.EDGE_LEFT)
+
+    private fun completeBackGesture() {
+        compose.waitForIdle()
+        compose.mainClock.autoAdvance = false
+        compose.runOnUiThread { dispatcher.dispatchOnBackStarted(backEvent(0f)) }
+        compose.mainClock.advanceTimeByFrame()
+        compose.runOnUiThread { dispatcher.dispatchOnBackProgressed(backEvent(0.8f)) }
+        compose.mainClock.advanceTimeByFrame()
+        compose.mainClock.advanceTimeBy(32)
+        compose.runOnUiThread { dispatcher.onBackPressed() }
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+    }
+
+    private fun settingsBack() {
+        compose.onNodeWithTag("settings_back").performClick()
+        compose.waitForIdle()
+    }
 
     private fun clickSetting(page: String, tag: String) {
+        compose.waitForIdle()
         compose.onNodeWithTag(page).assertIsDisplayed()
         compose.onNodeWithTag("settings_list").performScrollToNode(hasTestTag(tag))
         compose.onNodeWithTag(tag).performClick()
+        compose.waitForIdle()
     }
 
     private fun saveScreenshot(name: String) {

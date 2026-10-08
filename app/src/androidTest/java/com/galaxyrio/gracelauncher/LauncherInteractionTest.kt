@@ -3,6 +3,7 @@ package com.galaxyrio.gracelauncher
 import android.content.ComponentName
 import android.graphics.Bitmap
 import android.os.SystemClock
+import android.os.UserHandle
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsNotSelected
@@ -34,7 +36,6 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.swipeUp
-import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.runtime.getValue
@@ -81,6 +82,7 @@ class LauncherInteractionTest {
         actions: LauncherActions = LauncherActions(),
         status: ScheduleStatus = ScheduleStatus.Ready,
         displayedApps: List<LauncherApp> = apps,
+        workProfileSerials: Set<Long> = emptySet(),
         favoriteCount: Int = 5,
         onLaunch: (LauncherApp) -> Unit = {},
         onToggle: () -> Unit = {},
@@ -93,6 +95,7 @@ class LauncherInteractionTest {
                     LauncherScreen(
                         uiState = LauncherUiState(
                             apps = displayedApps,
+                            workProfileSerials = workProfileSerials,
                             favoriteKeys = favorites,
                             isLoadingApps = false,
                             events = events,
@@ -141,22 +144,26 @@ class LauncherInteractionTest {
         compose.onNodeWithTag("section:A").assertIsDisplayed()
 
         rail.performTouchInput { moveTo(Offset(centerX, height * 0.625f), delayMillis = 250) }
+        compose.waitForIdle()
         compose.onNodeWithTag("section:C").assertIsDisplayed()
         compose.onNodeWithTag("section:A").assertDoesNotExist()
         compose.onNodeWithTag("section:Z").assertDoesNotExist()
         saveScreenshot("drawer-wave.png")
 
         rail.performTouchInput { moveTo(Offset(centerX, height * 0.875f), delayMillis = 250) }
+        compose.waitForIdle()
         compose.onNodeWithTag("section:Z").assertIsDisplayed()
         compose.onNodeWithTag("section:C").assertDoesNotExist()
 
         rail.performTouchInput { moveTo(Offset(centerX, height * 0.125f), delayMillis = 250) }
+        compose.waitForIdle()
         compose.onNodeWithTag("home_clock").assertIsDisplayed()
 
         rail.performTouchInput {
             moveTo(Offset(centerX, height * 0.625f), delayMillis = 250)
             up()
         }
+        compose.waitForIdle()
         compose.onNodeWithTag("section:C").assertIsDisplayed()
         listOf("A", "C", "Z").forEach {
             compose.onNodeWithTag("section:$it").assertIsDisplayed()
@@ -198,54 +205,63 @@ class LauncherInteractionTest {
         showLauncher()
         val rail = compose.onNodeWithTag("alphabet_rail")
         rail.performTouchInput { down(Offset(centerX, height * 0.625f)) }
+        compose.waitForIdle()
         compose.onNodeWithTag("section:C").assertIsDisplayed()
         compose.onNodeWithTag("section:A").assertDoesNotExist()
         compose.onNodeWithTag("section:Z").assertDoesNotExist()
         rail.performTouchInput { cancel() }
+        compose.waitForIdle()
         listOf("A", "C", "Z").forEach { compose.onNodeWithTag("section:$it").assertIsDisplayed() }
     }
 
     @Test
-    fun homeVerticalGesturesNeverOpenDrawerAndFloatingButtonLongPressOpensSettings() {
+    fun upwardSwipeOnBlankHomeOpensSearchInsteadOfAlphabeticalDrawer() {
         showLauncher()
-        compose.onNodeWithTag("home_content").performTouchInput { swipeUp() }
-        compose.onNodeWithTag("home_clock").assertIsDisplayed()
+        compose.onNodeWithTag("home_gesture_surface").performTouchInput {
+            val start = Offset(width * 0.9f, height * 0.9f)
+            down(start)
+            moveTo(Offset(start.x, height * 0.62f), delayMillis = 180)
+            up()
+        }
+        compose.onNodeWithTag("app_search").assertIsDisplayed()
         compose.onNodeWithTag("app_drawer").assertIsNotDisplayed()
-        compose.onNodeWithTag("home_content").performTouchInput { swipeDown() }
-        compose.onNodeWithTag("home_clock").assertIsDisplayed()
-        compose.onNodeWithTag("app_drawer").assertIsNotDisplayed()
-        compose.onNodeWithTag("open_all_apps").assertDoesNotExist()
-        compose.onNodeWithTag("launcher_fab").performTouchInput { longClick() }
-        compose.onNodeWithTag("app_drawer").assertIsNotDisplayed()
-        compose.onNodeWithTag("settings_root").assertIsDisplayed()
-        compose.onNodeWithTag("launcher_sheet").assertDoesNotExist()
+        compose.onNodeWithTag("launcher_fab").assertDoesNotExist()
     }
 
     @Test
     fun rightSwipeOpensProvidedShortcutRowsAndDoesNotLaunchTheApp() {
-        var launches = 0
+        var normalLaunches = 0
         var toggles = 0
-        var openedShortcut: String? = null
+        var launchedShortcut: LauncherApp? = null
+        val personalCopy = apps[1]
+        val workCopy = personalCopy.copy(user = UserHandle.getUserHandleForUid(1_000_000), userSerial = 77L)
         showLauncher(
-            actions = LauncherActions(
-                shortcuts = { ShortcutResult(ShortcutStatus.Ready, listOf(
-                    LauncherShortcut("compose", it.packageName, "Compose", null),
-                    LauncherShortcut("inbox", it.packageName, "Inbox", null),
-                )) },
-                launchShortcut = { openedShortcut = it.id },
-            ),
-            onLaunch = { launches++ }, onToggle = { toggles++ },
+            displayedApps = listOf(personalCopy, workCopy), workProfileSerials = setOf(77L), favoriteCount = 2,
+            actions = LauncherActions(shortcuts = { owner -> ShortcutResult(ShortcutStatus.Ready, listOf(
+                LauncherShortcut("compose", owner.packageName, "Compose", null, user = owner.user, userSerial = owner.userSerial),
+                LauncherShortcut("inbox", owner.packageName, "Inbox", null, user = owner.user, userSerial = owner.userSerial),
+            )) }),
+            onLaunch = { item -> if (item.shortcut == null) normalLaunches++ else launchedShortcut = item },
+            onToggle = { toggles++ },
         )
-        compose.onNodeWithTag("app:${apps[1].key}").performTouchInput { swipeRight(durationMillis = 240) }
+        compose.onNodeWithTag("app:${workCopy.key}").performTouchInput { swipeRight(durationMillis = 240) }
         awaitSurface("shortcut_popup")
         compose.onNodeWithTag("shortcut_popup").assertIsDisplayed()
         compose.onNodeWithText("Compose").assertIsDisplayed()
         compose.onNodeWithText("Inbox").assertIsDisplayed()
         saveScreenshot("shortcuts-sample.png")
-        assertEquals(0, launches)
+        assertEquals(0, normalLaunches)
         assertEquals(0, toggles)
-        compose.onNodeWithTag("shortcut:compose").performClick()
-        assertEquals("compose", openedShortcut)
+        compose.waitForIdle()
+        compose.onNodeWithTag("shortcut:compose").assertIsEnabled().performClick()
+        val launched = requireNotNull(launchedShortcut)
+        assertEquals("compose", launched.shortcut?.id)
+        assertEquals(workCopy.packageName, launched.packageName)
+        assertEquals(workCopy.componentName, launched.componentName)
+        assertEquals(workCopy.user, launched.user)
+        assertEquals(workCopy.userSerial, launched.userSerial)
+        assertEquals("profile:77:shortcut:${workCopy.packageName}/compose", launched.key)
+        assertEquals(0, normalLaunches)
         compose.onNodeWithTag("shortcut_popup").assertDoesNotExist()
     }
 
@@ -364,7 +380,8 @@ class LauncherInteractionTest {
     @Test
     fun settingsActionRippleChangesInteriorPixelsButStaysInsideRoundedCorners() {
         showLauncher()
-        compose.onNodeWithTag("launcher_fab").performTouchInput { longClick() }
+        compose.onNodeWithTag("home_clock").performTouchInput { longClick() }
+        compose.onNodeWithText("Grace settings").performScrollTo().performClick()
         awaitSurface("settings_root")
         assertRoundedRipple(compose.onNodeWithTag("settings_category_productivity"), "ripple-settings-action.png")
     }
@@ -376,12 +393,6 @@ class LauncherInteractionTest {
         awaitSurface("shortcut_popup")
         assertRoundedRipple(compose.onNodeWithTag("shortcut_header"), "ripple-shortcut-header.png")
         assertRoundedRipple(compose.onNodeWithTag("shortcut:compose"), "ripple-shortcut-row.png")
-    }
-
-    @Test
-    fun floatingButtonRippleStaysInsideItsCircularSurface() {
-        showLauncher()
-        assertRoundedRipple(compose.onNodeWithTag("launcher_fab"), "ripple-settings-fab.png")
     }
 
     @Test
@@ -508,7 +519,7 @@ class LauncherInteractionTest {
         compose.onNodeWithTag("home_content").performScrollToIndex(24)
         compose.onNodeWithTag("app:${manyApps.last().key}").assertIsDisplayed()
         compose.onNodeWithTag("alphabet:A").performClick()
-        compose.onNodeWithTag("app:${manyApps[2].key}").performTouchInput { swipeUp() }
+        compose.onNodeWithTag("app:${manyApps[2].key}", useUnmergedTree = true).performTouchInput { swipeUp() }
         compose.onNodeWithTag("shortcut_popup").assertDoesNotExist()
         compose.onNodeWithTag("app_drawer").performScrollToIndex(24)
         compose.onNodeWithTag("app:${manyApps.last().key}").assertIsDisplayed()

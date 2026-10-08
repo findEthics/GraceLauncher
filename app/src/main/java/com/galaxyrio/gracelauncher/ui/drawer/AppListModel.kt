@@ -30,11 +30,15 @@ sealed interface DrawerItem {
         override val key = "private-space-status"
         override val section = FolderSection
     }
+    data object WorkProfileStatus : DrawerItem {
+        override val key = "work-profile-status"
+        override val section = GraceSection
+    }
 }
 
 class AppListModel(apps: List<LauncherApp>, folders: List<LauncherFolder> = emptyList(),
     privateFolder: LauncherFolder? = null, privateExpanded: Boolean = false, privateApps: List<LauncherApp> = emptyList(),
-    recentlyInstalledFolder: LauncherFolder? = null) {
+    recentlyInstalledFolder: LauncherFolder? = null, workProfilesUnavailable: Boolean = false) {
     private val settingsApp = apps.firstOrNull(LauncherApp::isLauncherSettings)
     private val inlineFolders = folders.filter { it.placement.inAppList && !it.appListAtBottom }.associateBy(LauncherFolder::key)
     // Use exactly the same name/pinyin ordering and alphabet sections as apps.
@@ -65,10 +69,11 @@ class AppListModel(apps: List<LauncherApp>, folders: List<LauncherFolder> = empt
             }
         }
         // Launcher utilities are a footer, not another alphabetical G section.
-        if (recentlyInstalledFolder != null || settingsApp != null) {
+        if (recentlyInstalledFolder != null || settingsApp != null || workProfilesUnavailable) {
             add(DrawerItem.Header(GraceSection))
             recentlyInstalledFolder?.let { add(DrawerItem.Folder(it, GraceSection)) }
             settingsApp?.let { add(DrawerItem.App(it, GraceSection)) }
+            if (workProfilesUnavailable) add(DrawerItem.WorkProfileStatus)
         }
     }
     // Keep the rail in sync with every section, including launcher utilities.

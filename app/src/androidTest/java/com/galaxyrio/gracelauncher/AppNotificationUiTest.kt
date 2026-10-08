@@ -10,13 +10,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.galaxyrio.gracelauncher.data.*
 import com.galaxyrio.gracelauncher.data.notifications.AppNotification
+import com.galaxyrio.gracelauncher.data.notifications.NotificationReplyResult
 import com.galaxyrio.gracelauncher.ui.LauncherActions
+import com.galaxyrio.gracelauncher.ui.overlays.NotificationPopupItem
 import com.galaxyrio.gracelauncher.ui.LauncherScreen
 import com.galaxyrio.gracelauncher.ui.LauncherUiState
 import com.galaxyrio.gracelauncher.ui.theme.GraceLauncherTheme
@@ -29,6 +33,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AppNotificationUiTest {
     @get:Rule val compose = createComposeRule()
+    private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val app = LauncherApp(ComponentName("fixture.chat", "ChatActivity"), "Messages", null)
     private val browser = LauncherApp(ComponentName("fixture.browser", "BrowserActivity"), "Chrome", null)
     private val message = AppNotification("message-1", app.packageName, "Two new messages",
@@ -36,6 +41,8 @@ class AppNotificationUiTest {
     private var notifications by mutableStateOf(listOf(message))
     private val dismissed = mutableListOf<String>()
     private val opened = mutableListOf<String>()
+    private val replies = mutableListOf<Triple<String, Long, String>>()
+    private var replyResult = NotificationReplyResult.Dispatched
     private var launchedApps = 0
 
     private fun show(drawer: Boolean = false, shortcutAccess: Boolean = true) {
@@ -62,12 +69,20 @@ class AppNotificationUiTest {
                                 }
                             },
                             openNotification = { key, _ -> opened += key; true },
+                            replyNotification = { key, revision, text ->
+                                replies += Triple(key, revision, text)
+                                replyResult
+                            },
                         ),
                     )
                 }
             }
         }
     }
+
+    private fun SemanticsNodeInteraction.assertEditableTextEquals(expected: String) = assert(
+        SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(expected))
+    )
 
     @Test fun homePreviewArrowOpensNotificationAboveShortcutsAndLeftSwipeClearsOnlyIt() {
         show()
@@ -144,11 +159,154 @@ class AppNotificationUiTest {
     @Test fun searchDoesNotInheritNotificationArrowsWithoutAShortcutHost() {
         show()
         compose.onNodeWithTag("notification_arrow:app:${app.key}").assertIsDisplayed()
-        compose.onNodeWithTag("launcher_fab").performClick()
+        openSearchFromBackground()
         compose.onAllNodesWithTag("notification_arrow:app:${app.key}").assertCountEquals(0)
         compose.onNodeWithTag("app_search_query").performTextReplacement(app.label)
         compose.onNodeWithTag("app:${app.key}").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(1, launchedApps); assertTrue(opened.isEmpty()) }
+    }
+
+    @Test fun replyEditorCanCancelWithoutOpeningOrDismissingTheNotification() {
+        notifications = listOf(message.copy(canReply = true))
+        show()
+        compose.onNodeWithTag("notification_arrow:app:${app.key}").performClick()
+        compose.onNodeWithTag("notification_reply_button:${message.key}").performClick()
+        val input = compose.onNodeWithTag("notification_reply_input:${message.key}").assertIsDisplayed()
+        input.performTextInput("A draft")
+        input.performTouchInput { swipeLeft() }
+        compose.onNodeWithTag("notification:${message.key}").assertIsDisplayed()
+        compose.onNodeWithTag("notification_reply_cancel:${message.key}").performClick()
+        compose.onNodeWithTag("notification_reply_input:${message.key}").assertDoesNotExist()
+        compose.onNodeWithTag("notification_reply_button:${message.key}").assertIsDisplayed()
+        compose.runOnIdle { assertTrue(replies.isEmpty()); assertTrue(opened.isEmpty()); assertTrue(dismissed.isEmpty()) }
+    }
+
+    @Test fun removingAnOpenReplyNotificationDiscardsItsDraft() {
+        notifications = listOf(message.copy(canReply = true))
+        show()
+        compose.onNodeWithTag("notification_arrow:app:${app.key}").performClick()
+        compose.onNodeWithTag("notification_reply_button:${message.key}").performClick()
+        compose.onNodeWithTag("notification_reply_input:${message.key}").performTextInput("Private draft")
+
+        compose.runOnIdle { notifications = emptyList() }
+        compose.onNodeWithTag("notification:${message.key}").assertDoesNotExist()
+        compose.runOnIdle { notifications = listOf(message.copy(canReply = true)) }
+        compose.onNodeWithTag("notification_reply_button:${message.key}").performClick()
+        compose.onNodeWithTag("notification_reply_input:${message.key}").assertEditableTextEquals("")
+        compose.runOnIdle { assertTrue(replies.isEmpty()) }
+    }
+
+    @Test fun replyControlsAndDispatchAreDisabledWhileThePopupIsCollapsing() {
+        var gesturesEnabled by mutableStateOf(true)
+        val replyable = message.copy(canReply = true)
+        compose.setContent {
+            GraceLauncherTheme(dynamicColor = false) {
+                NotificationPopupItem(
+                    app = app,
+                    notification = replyable,
+                    onOpen = {},
+                    onDismiss = { false },
+                    onReply = { key, revision, text ->
+                        replies += Triple(key, revision, text)
+                        NotificationReplyResult.Dispatched
+                    },
+                    gesturesEnabled = gesturesEnabled,
+                )
+            }
+        }
+        compose.runOnIdle { gesturesEnabled = false }
+        val replyButton = compose.onNodeWithTag("notification_reply_button:${message.key}").assertIsNotEnabled()
+        replyButton.performTouchInput { click() }
+        compose.onNodeWithTag("notification_reply_input:${message.key}").assertDoesNotExist()
+        compose.runOnIdle { gesturesEnabled = true }
+
+        compose.onNodeWithTag("notification_reply_button:${message.key}").performClick()
+        val input = compose.onNodeWithTag("notification_reply_input:${message.key}")
+        input.performTextInput("Do not submit while collapsing")
+        compose.runOnIdle { gesturesEnabled = false }
+
+        input.assertIsNotEnabled()
+        compose.onNodeWithTag("notification_reply_cancel:${message.key}").assertIsNotEnabled()
+        val send = compose.onNodeWithTag("notification_reply_send:${message.key}").assertIsNotEnabled()
+        send.performTouchInput { click() }
+        compose.runOnIdle { assertTrue(replies.isEmpty()) }
+    }
+
+    @Test fun replyDispatchKeepsTheNotificationAndDoesNotDuplicateSubmits() {
+        notifications = listOf(message.copy(canReply = true))
+        show()
+        compose.onNodeWithTag("notification_arrow:app:${app.key}").performClick()
+        compose.onNodeWithTag("notification_reply_button:${message.key}").performClick()
+        val input = compose.onNodeWithTag("notification_reply_input:${message.key}").assertIsDisplayed()
+        compose.onNodeWithContentDescription(context.getString(R.string.notification_reply_input)).assertIsDisplayed()
+        compose.onNodeWithContentDescription(context.getString(R.string.notification_reply_send)).assertIsDisplayed()
+        compose.onNodeWithContentDescription(context.getString(R.string.notification_reply_cancel)).assertIsDisplayed()
+        input.performTextInput("Hello there")
+        compose.onNodeWithTag("notification_reply_send:${message.key}").assertIsEnabled()
+        screenshot("notification-reply-editor.png")
+        val panel = compose.onNodeWithTag("shortcut_popup").fetchSemanticsNode().boundsInRoot
+        val send = compose.onNodeWithTag("notification_reply_send:${message.key}").fetchSemanticsNode().boundsInRoot
+        val cancel = compose.onNodeWithTag("notification_reply_cancel:${message.key}").fetchSemanticsNode().boundsInRoot
+        assertTrue(send.bottom <= panel.bottom && cancel.bottom <= panel.bottom)
+        compose.onNodeWithTag("notification_reply_send:${message.key}").performClick()
+        compose.onNodeWithTag("notification_reply_input:${message.key}").assertDoesNotExist()
+        compose.onNodeWithTag("notification_reply_button:${message.key}").assertIsDisplayed()
+        compose.runOnIdle {
+            assertEquals(listOf(Triple(message.key, message.revision, "Hello there")), replies)
+            assertTrue(opened.isEmpty()); assertTrue(dismissed.isEmpty())
+            assertEquals(message.key, notifications.single().key)
+        }
+    }
+
+    @Test fun blankRepliesAreDisabledAndFailedRepliesKeepTheDraftForRetry() {
+        notifications = listOf(message.copy(canReply = true))
+        replyResult = NotificationReplyResult.Failed
+        show()
+        compose.onNodeWithTag("notification_arrow:app:${app.key}").performClick()
+        compose.onNodeWithTag("notification_reply_button:${message.key}").performClick()
+        val input = compose.onNodeWithTag("notification_reply_input:${message.key}").assertIsDisplayed()
+        val send = compose.onNodeWithTag("notification_reply_send:${message.key}")
+        send.assertIsNotEnabled()
+        input.performTextInput("   ")
+        send.assertIsNotEnabled()
+        input.performTextClearance()
+        input.performTextInput("Keep this draft")
+        send.assertIsEnabled().performClick()
+        input.assertEditableTextEquals("Keep this draft")
+        compose.onNodeWithTag("notification_reply_error:${message.key}")
+            .assertTextEquals(context.getString(R.string.notification_reply_failed))
+        compose.runOnIdle {
+            assertEquals(listOf(Triple(message.key, message.revision, "Keep this draft")), replies)
+            replyResult = NotificationReplyResult.Dispatched
+        }
+        send.performClick()
+        compose.onNodeWithTag("notification_reply_input:${message.key}").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(2, replies.size); assertTrue(opened.isEmpty()); assertTrue(dismissed.isEmpty()) }
+    }
+
+    @Test fun replacingAReplyableNotificationKeepsTheDraftButBlocksItsStaleAction() {
+        notifications = listOf(message.copy(canReply = true))
+        show()
+        compose.onNodeWithTag("notification_arrow:app:${app.key}").performClick()
+        compose.onNodeWithTag("notification_reply_button:${message.key}").performClick()
+        val input = compose.onNodeWithTag("notification_reply_input:${message.key}").assertIsDisplayed()
+        input.performTextInput("Do not send to the replacement")
+        compose.runOnIdle { notifications = listOf(message.copy(revision = 2, title = "Updated", canReply = false)) }
+        input.assertIsDisplayed().assertEditableTextEquals("Do not send to the replacement")
+        compose.onNodeWithTag("notification_reply_error:${message.key}")
+            .assertTextEquals(context.getString(R.string.notification_unavailable))
+        compose.onNodeWithTag("notification_reply_send:${message.key}").assertIsNotEnabled()
+        compose.runOnIdle { assertTrue(replies.isEmpty()); assertTrue(opened.isEmpty()); assertTrue(dismissed.isEmpty()) }
+    }
+
+    private fun openSearchFromBackground() {
+        compose.onNodeWithTag("home_gesture_surface").performTouchInput {
+            val start = Offset(width * 0.9f, height * 0.9f)
+            down(start)
+            moveTo(Offset(start.x, height * 0.62f), delayMillis = 180)
+            up()
+        }
+        compose.onNodeWithTag("app_search").assertIsDisplayed()
     }
 
     private fun screenshot(name: String) {

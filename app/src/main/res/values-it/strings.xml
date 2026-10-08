@@ -10,13 +10,6 @@
     <string name="media_idle_title">Non c\'è niente in riproduzione</string>
     <string name="media_idle_summary">Tocca play per riprendere</string>
     <string name="settings_none">Nessuno</string>
-    <string name="settings_grace_button">Pulsante Grace</string>
-    <string name="grace_button_enable">Abilita il pulsante Grace</string>
-    <string name="grace_button_tap">Tocco singolo</string>
-    <string name="grace_button_long_press">Tocco prolungato</string>
-    <string name="grace_button_open_app">Apri app</string>
-    <string name="grace_button_open_shortcut">Apri scorciatoia</string>
-    <string name="grace_button_disabled">Disabilitato</string>
     <string name="shortcuts_title">Scorciatoie</string>
     <string name="shortcuts_search">Cerca scorciatoie</string>
     <string name="shortcuts_load_partial">Alcune scorciatoie non sono state caricate</string>
@@ -133,7 +126,6 @@
     <string name="no_upcoming_events">Nessun evento nei prossimi 14 giorni</string>
     <string name="search_apps">Ricerca e cassetto app</string>
     <string name="search_no_results">Nessun\'app corrisponde</string>
-    <string name="launcher_fab_description">Ricerca app. Tocca e tieni premuto per le impostazioni.</string>
     <string name="drawer_folders">Cartelle</string>
     <string name="recently_installed">Installate di recente</string>
     <string name="add_to_folder">Aggiungi alla cartella</string>
@@ -155,6 +147,12 @@
     <string name="notification_days">%1$dg</string>
     <string name="notification_unavailable">Notifica non più disponibile</string>
     <string name="notification_allow">Mostra notifiche app</string>
+    <string name="notification_reply">Rispondi</string>
+    <string name="notification_reply_input">Messaggio di risposta</string>
+    <string name="notification_reply_send">Invia</string>
+    <string name="notification_reply_cancel">Annulla</string>
+    <string name="notification_reply_failed">Impossibile inviare la risposta. La bozza è ancora disponibile.</string>
+    <string name="notification_reply_unlock">Sblocca il dispositivo per rispondere.</string>
     <string name="media_service_name">Notifiche e media di Grace Launcher</string>
     <string name="media_player_summary">Mostra riproduzione sulla schermata home</string>
     <string name="media_allow_controls">Consenti notifiche e media</string>
@@ -180,7 +178,8 @@
     <string name="settings_about_summary">Grace Launcher, aggiornamenti e licenze</string>
     <string name="settings_instant_access">Accesso rapido</string>
     <string name="settings_calendar_agenda">Agenda</string>
-    <string name="settings_calendar_agenda_summary">Mostra il prossimo evento sulla schermata home</string>
+    <string name="settings_calendar_agenda_summary">Mostra gli eventi del calendario delle prossime 24 ore sulla schermata home</string>
+    <string name="calendar_untitled_event">Evento senza titolo</string>
     <string name="settings_weather">Tempo</string>
     <string name="settings_media_player">Riproduttore media</string>
     <string name="settings_coming_soon">In arrivo</string>

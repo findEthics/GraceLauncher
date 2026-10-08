@@ -7,9 +7,12 @@ import android.content.Context
 import android.net.Uri
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -20,6 +23,8 @@ import com.galaxyrio.gracelauncher.data.CalendarRepository
 import com.galaxyrio.gracelauncher.data.FavoritesStore
 import com.galaxyrio.gracelauncher.data.LauncherApp
 import com.galaxyrio.gracelauncher.data.LauncherAppOrder
+import com.galaxyrio.gracelauncher.data.isPrivateOrUnknownProfileKey
+import com.galaxyrio.gracelauncher.data.savedShortcutOwner
 import com.galaxyrio.gracelauncher.data.LauncherDatabase
 import com.galaxyrio.gracelauncher.data.LauncherFolder
 import com.galaxyrio.gracelauncher.data.FolderPlacement
@@ -55,6 +60,7 @@ import com.galaxyrio.gracelauncher.data.media.MediaSessionRepository
 import com.galaxyrio.gracelauncher.data.media.MediaSnapshot
 import com.galaxyrio.gracelauncher.data.media.NowPlaying
 import com.galaxyrio.gracelauncher.data.notifications.AppNotification
+import com.galaxyrio.gracelauncher.data.notifications.NotificationReplyResult
 import com.galaxyrio.gracelauncher.data.notifications.appNotifications
 import com.galaxyrio.gracelauncher.data.weather.BreezyWeatherRepository
 import com.galaxyrio.gracelauncher.data.weather.WeatherState
@@ -82,6 +88,8 @@ enum class ScheduleStatus {
 
 data class LauncherUiState(
     val apps: List<LauncherApp> = emptyList(),
+    val workProfileSerials: Set<Long> = emptySet(),
+    val workProfilesUnavailable: Boolean = false,
     val favoriteKeys: Set<String> = emptySet(),
     val isLoadingApps: Boolean = true,
     val appLoadFailed: Boolean = false,
@@ -126,6 +134,12 @@ data class LauncherUiState(
         ?: privateFolder.takeIf { it.key == key }?.let(::folderItem)
         ?: folders.firstOrNull { it.key == key }?.let(::folderItem)
 
+    fun notificationsFor(app: LauncherApp): List<AppNotification> =
+        if (app.user == null && app.userSerial == null && app.shortcut == null && !app.isPrivateSpace)
+            notifications[app.packageName].orEmpty() else emptyList()
+
+    fun isPrivateProfileItem(key: String): Boolean = isPrivateOrUnknownProfileKey(key, workProfileSerials)
+
     val privateFolder: LauncherFolder get() = settings.privateSpace.folder(privateSpaceApps)
     val privateContentVisible: Boolean get() = !isLoadingSettings && !settingsLoadFailed && settings.privateSpace.enabled &&
         privateSpace.user != null && (settings.privateSpace.exposesApps || (privateSpace.accessible && !privateSpace.locked))
@@ -142,7 +156,7 @@ data class LauncherUiState(
     val recentlyInstalledApps: List<LauncherApp> get() = apps.asSequence()
         .filter { it.shortcut == null && it.folderId == null && !it.isPrivateSpace && !it.isLauncherSettings }
         .sortedWith(compareByDescending<LauncherApp> { it.firstInstallTime }.then(LauncherAppOrder))
-        .distinctBy(LauncherApp::packageName).take(8).toList()
+        .distinctBy { it.packageName to it.userSerial }.take(8).toList()
 
     fun recentlyInstalledFolder(name: String) = LauncherFolder(
         RecentlyInstalledFolderId, name, recentlyInstalledApps.map(LauncherApp::key), FolderPlacement.AppList,
@@ -159,7 +173,7 @@ data class LauncherUiState(
                 else if (owner.folderId == null) defaults.map { it.key }
                 else folders.firstOrNull { it.id == owner.folderId }?.appKeys.orEmpty()).distinct().map { PopupItem(it) }
         return if (owner.folderId != PrivateSpaceFolderId && !settings.privateSpace.exposesApps)
-            items.filterNot { it.key.startsWith("profile:") } else items
+            items.filterNot { isPrivateProfileItem(it.key) } else items
     }
     val homeMedia: NowPlaying?
         get() = media.nowPlaying.takeIf {
@@ -233,9 +247,20 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             refreshApps()
         }
     }
-    private val dateReceiver = object : BroadcastReceiver() {
+    private val appRefreshReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) { refreshApps() }
     }
+    private val launcherApps = application.getSystemService(LauncherApps::class.java)
+    private val launcherAppsCallback = object : LauncherApps.Callback() {
+        override fun onPackageRemoved(packageName: String, user: android.os.UserHandle) = refreshApps()
+        override fun onPackageAdded(packageName: String, user: android.os.UserHandle) = refreshApps()
+        override fun onPackageChanged(packageName: String, user: android.os.UserHandle) = refreshApps()
+        override fun onPackagesAvailable(packages: Array<out String>, user: android.os.UserHandle, replacing: Boolean) = refreshApps()
+        override fun onPackagesUnavailable(packages: Array<out String>, user: android.os.UserHandle, replacing: Boolean) = refreshApps()
+        override fun onPackagesSuspended(packages: Array<out String>, user: android.os.UserHandle) = refreshApps()
+        override fun onPackagesUnsuspended(packages: Array<out String>, user: android.os.UserHandle) = refreshApps()
+    }
+    private var launcherAppsCallbackRegistered = false
 
     init {
         viewModelScope.launch {
@@ -285,12 +310,22 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             addAction(Intent.ACTION_PACKAGE_CHANGED)
             addDataScheme("package")
         }, ContextCompat.RECEIVER_NOT_EXPORTED)
-        ContextCompat.registerReceiver(application, dateReceiver, IntentFilter().apply {
+        ContextCompat.registerReceiver(application, appRefreshReceiver, IntentFilter().apply {
             addAction(Intent.ACTION_DATE_CHANGED)
             addAction(Intent.ACTION_TIME_CHANGED)
             addAction(Intent.ACTION_TIMEZONE_CHANGED)
             addAction(Intent.ACTION_WALLPAPER_CHANGED)
+            addAction(Intent.ACTION_PROFILE_ACCESSIBLE)
+            addAction(Intent.ACTION_PROFILE_INACCESSIBLE)
+            addAction(Intent.ACTION_PROFILE_ADDED)
+            addAction(Intent.ACTION_PROFILE_REMOVED)
+            addAction(Intent.ACTION_PROFILE_AVAILABLE)
+            addAction(Intent.ACTION_PROFILE_UNAVAILABLE)
+            addAction(Intent.ACTION_USER_UNLOCKED)
         }, ContextCompat.RECEIVER_NOT_EXPORTED)
+        launcherAppsCallbackRegistered = runCatching {
+            launcherApps.registerCallback(launcherAppsCallback, Handler(Looper.getMainLooper()))
+        }.isSuccess
         viewModelScope.launch {
             settingsRepository.snapshots
                 .catch { error ->
@@ -367,18 +402,20 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 availablePacks.isNotEmpty() -> IconPackStatus.Ready
                 else -> IconPackStatus.Unavailable
             }
-            runCatching { appRepository.loadApps(selectedPacks) }
-                .onSuccess { apps ->
+            runCatching { appRepository.loadAppInventory(selectedPacks) }
+                .onSuccess { inventory ->
+                    val apps = inventory.apps
                     val renames = preferences.renames()
                     val snapshot = itemsSnapshot
                     val iconSettings = _uiState.value.settings
                     suspend fun decorate(app: LauncherApp): LauncherApp = itemIcons.applyDesign(app, snapshot.icons[app.key], iconSettings.iconDesign, iconSettings, preferences.themedIcons)
                         .copy(label = renames[app.key] ?: app.originalLabel)
-                    val shortcuts = snapshot.shortcuts.filterNot { it.itemKey.startsWith("profile:") }.mapNotNull { saved ->
-                        val owner = apps.firstOrNull { it.componentName.flattenToString() == saved.activity }
-                            ?: apps.firstOrNull { it.packageName == saved.packageName } ?: return@mapNotNull null
+                    val shortcuts = snapshot.shortcuts.mapNotNull { saved ->
+                        val owner = savedShortcutOwner(saved.itemKey, saved.activity, saved.packageName, apps)
+                            ?: return@mapNotNull null
                         val current = shortcutRepository.shortcutsFor(owner).shortcuts.firstOrNull { it.id == saved.shortcutId }
-                            ?: LauncherShortcut(saved.shortcutId, saved.packageName, saved.label, owner.icon, owner.componentName)
+                            ?: LauncherShortcut(saved.shortcutId, saved.packageName, saved.label, owner.icon, owner.componentName,
+                                user = owner.user, userSerial = owner.userSerial, isPrivateSpace = owner.isPrivateSpace)
                         decorate(current.asApp(owner))
                     }
                     val shown = snapshot.shortcuts.filter { it.showInAppList }.map { it.itemKey }.toSet()
@@ -392,6 +429,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     _uiState.update {
                         it.copy(
                             apps = displayedApps,
+                            workProfileSerials = inventory.workProfileSerials,
+                            workProfilesUnavailable = inventory.workProfilesUnavailable,
                             shortcutApps = shortcuts + it.shortcutApps.filter(LauncherApp::isPrivateSpace),
                             folderApps = folderApps,
                             privateFolderApp = privateFolderApp,
@@ -576,7 +615,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     override fun onCleared() {
         getApplication<Application>().unregisterReceiver(packageReceiver)
-        getApplication<Application>().unregisterReceiver(dateReceiver)
+        getApplication<Application>().unregisterReceiver(appRefreshReceiver)
+        if (launcherAppsCallbackRegistered) launcherApps.unregisterCallback(launcherAppsCallback)
         shortcutRepository.close()
         mediaRepository.close()
     }
@@ -585,6 +625,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun dismissMedia(sessionId: String, revision: Long): Boolean = mediaRepository.dismiss(sessionId, revision)
     fun dismissNotification(key: String, revision: Long): Boolean = appNotifications.dismiss(key, revision)
     fun openNotification(key: String, revision: Long): Boolean = appNotifications.open(getApplication(), key, revision)
+    fun replyNotification(key: String, revision: Long, text: String): NotificationReplyResult =
+        appNotifications.reply(getApplication(), key, revision, text)
 
     fun renameApp(app: LauncherApp, label: String) {
         if (app.folderId == PrivateSpaceFolderId) {
