@@ -16,6 +16,7 @@ import com.galaxyrio.gracelauncher.data.LauncherApp
 import com.galaxyrio.gracelauncher.data.LauncherShortcut
 import com.galaxyrio.gracelauncher.data.PopupItem
 import com.galaxyrio.gracelauncher.data.notifications.AppNotification
+import com.galaxyrio.gracelauncher.data.notifications.appNotificationBucketKey
 import com.galaxyrio.gracelauncher.ui.LauncherUiState
 import com.galaxyrio.gracelauncher.ui.drawer.AppListModel
 import com.galaxyrio.gracelauncher.ui.drawer.DrawerItem
@@ -70,13 +71,24 @@ class WorkProfileIdentityTest {
     }
 
     @Test fun recentlyInstalledAndNotificationsKeepThePersonalAndWorkCopiesDistinct() {
-        val notification = AppNotification("notification", component.packageName, "Title", "Body", 1L, 1L, true, true)
-        val state = LauncherUiState(apps = listOf(personal, work, privateApp),
-            notifications = mapOf(component.packageName to listOf(notification)))
+        val personalNotification = AppNotification("personal-notification", component.packageName,
+            "Personal title", "Personal body", 1L, 1L, true, true)
+        val workNotification = AppNotification("work-notification", component.packageName,
+            "Work title", "Work body", 2L, 2L, true, true, userSerial = work.userSerial)
+        val state = LauncherUiState(
+            apps = listOf(personal, work, privateApp),
+            workProfileSerials = setOf(requireNotNull(work.userSerial)),
+            notifications = mapOf(
+                appNotificationBucketKey(component.packageName, null) to listOf(personalNotification),
+                appNotificationBucketKey(component.packageName, work.userSerial) to listOf(workNotification),
+            ),
+        )
         assertEquals(setOf(personal.key, work.key), state.recentlyInstalledApps.map(LauncherApp::key).toSet())
-        assertEquals(listOf(notification), state.notificationsFor(personal))
-        assertTrue(state.notificationsFor(work).isEmpty())
+        assertEquals(listOf(personalNotification), state.notificationsFor(personal))
+        assertEquals(listOf(workNotification), state.notificationsFor(work))
         assertTrue(state.notificationsFor(privateApp).isEmpty())
+        assertTrue(state.notificationsFor(work.copy(userSerial = 99L)).isEmpty())
+        assertTrue(state.copy(apps = listOf(personal, privateApp)).notificationsFor(work).isEmpty())
     }
 
     @Test fun recentlyInstalledDeduplicatesLauncherActivitiesWithinEachProfile() {

@@ -16,6 +16,11 @@
   - Include ongoing entries, zero-duration events at `now` and later within the window, recurring instances, and all-day UTC-date boundaries converted to local time; exclude ended and out-of-window entries.
   - An empty agenda uses the same header layout as `calendarAgenda=false` without changing the preference. Weather and clock remain independent; blank titles use a localized “Untitled event” fallback.
   - Calendar Provider entries only; no standalone task-app integration (source app unknown).
+- [x] Show eligible work-profile app notifications and route replies without mixing them with personal copies.
+  - Root cause: `AppNotificationStore.parse()` discarded every notification whose user was not the personal user; the UI map was keyed only by package and selected notifications only for personal apps.
+  - Preserve the personal package key; work notifications use the existing profile serial, and group-summary suppression and row selection are profile-qualified. Only related managed profiles that are present, storage-unlocked, and not quiet are eligible; open/dismiss/reply recheck that policy.
+  - Work-profile PendingIntents remain the notification's original targets. Authentication-required work replies are left to Android's notification UI: personal unlock is not proof of a separate work challenge being unlocked. Android/DPC policy may still prevent listener delivery; no listener or cross-profile security bypass is added.
+- [ ] Battery display has a bug; it does not show at all
 
 ## Validation and release status
 
@@ -23,11 +28,12 @@ Earlier testing was stopped at the user's request before full device validation.
 
 Debug assembly and lint passed (553 warnings, 1 hint, no errors). Full instrumentation and the affected physical device were not revalidated. Double-tap recognition/action dispatch was tested, but the real system lock action was not exercised.
 
-The fixed debug APK is installed on the emulator with Grace as default HOME and notification access enabled. The signed release below is unchanged and does not include this fix; its assembly, signature, alignment, and package/version metadata were verified at the earlier release checkpoint.
+At the earlier shortcut-validation checkpoint, the fixed debug APK was installed on the emulator with Grace as default HOME and notification access enabled. The signed release was rebuilt from commit `710382f`, including the shortcut fix and 24-hour home agenda. Release assembly, APK v3 signature, 16 KB alignment, and package/version metadata passed verification; this release APK was not installed or device-tested.
 
-APK: `app/build/outputs/apk/release/GraceLauncher-1.1.4-release.apk` (version `1.1.4`, code `6`).
+APK: `app/build/outputs/apk/release/GraceLauncher-1.1.4-release.apk` (version `1.1.4`, code `6`; 9,091,059 bytes).
+SHA-256: `35e504a83710560e0b9ea3536669e74e6f5985f5dde9ccc133231afbb9ed663c`.
 
-The APK uses a new local signing identity and cannot update an installation signed with a different key. The keystore and its password file are retained outside the repository under `~/.local/share/grace-launcher/signing/`.
+The APK reuses the existing local release signing identity, verified against the previous APK. It cannot update an installation signed with a different key. The keystore and its password file remain outside the repository under `~/.local/share/grace-launcher/signing/`; no new key or version bump was made.
 
 Calendar agenda follow-up:
 - Verified JDK 21.0.7 and the installed Android SDK using command-local `JAVA_HOME`/`ANDROID_HOME`; no SDK/JDK installation, `local.properties`, persistent environment configuration, default-HOME setting, or wallpaper change was made.
@@ -35,3 +41,13 @@ Calendar agenda follow-up:
 - Focused `HomeAgendaHeaderTest` instrumentation ran 9 tests: 8 passed, including all changed agenda tests; `dateAndAgendaMatchAppLabelSizeAndClockUsesMediumWeight` failed because the custom-drawn `home_clock` node has no `GetTextLayoutResult` action. No clock-rendering change was made for this unrelated test failure.
 - CalendarRepository’s blank-title provider mapping has no existing mock-provider test setup; its localized fallback compiled and resource XML validation passed, but no provider-backed mapping test was added.
 - `git diff --check` passed.
+
+Work-profile notification fix follow-up:
+- Before production edits: `adb shell am instrument -w -r -e class 'com.galaxyrio.gracelauncher.AppNotificationStoreTest#managedWorkNotificationKeepsItsReplyPendingIntent' com.galaxyrio.gracelauncher.test/androidx.test.runner.AndroidJUnitRunner` failed because the parser dropped the synthetic work-user `StatusBarNotification` (`notifications().single()` threw `NoSuchElementException`).
+- After the work-authentication guard correction: the direct runner passed 37/37 tests (`AppNotificationStoreTest` 18, `WorkProfileIdentityTest` 6, `AppNotificationUiTest` 13). The expanded store regression exercises profile-specific buckets, same-package/same-group isolation, matching work-row selection, and a real mutable `RemoteInput` receiver using a personal test-context PendingIntent—not a live work-user PendingIntent. JVM tests passed 53/53; debug/test assembly and lint passed.
+- Review found that work storage availability does not prove a separate work challenge is unlocked. A new regression failed before the guard (`canReply` was true) and passed afterward: authentication-required work actions cannot use personal unlock, while ordinary work replies and authenticated personal replies retain their existing behavior. No credential-locked-profile content guarantee is inferred from `UserManager.isUserUnlocked`.
+- Direct test commands: `adb shell am instrument -w -r -e class com.galaxyrio.gracelauncher.AppNotificationStoreTest com.galaxyrio.gracelauncher.test/androidx.test.runner.AndroidJUnitRunner`; the same command with `WorkProfileIdentityTest` (6/6) and `AppNotificationUiTest` (13/13). Debug/test APKs were updated with `adb install -r app/build/outputs/apk/debug/app-debug.apk` and `adb install -t -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`. `connectedDebugAndroidTest` was not used because its teardown uninstalls packages. The abandoned fixture-only changes from the earlier timeout were removed after backup; the original `SystemNotificationIntegrationTest.kt` is unchanged. No real managed-profile system-listener test is claimed.
+- Regression classification is synthetic: the test injects the same serial policy while exercising store parsing and a real Android `RemoteInput` PendingIntent, because no managed work profile/DPC device was available. No users/profiles were created. Actual managed-profile listener delivery and enterprise policy remain unverified; Android/DPC may suppress delivery even when the shade shows a notification.
+- Independent review accepted the work-profile fix after the authentication guard correction. The earlier unvalidated test manifest/service and system-fixture delta are backed up under `/tmp/grace-work-notification-baseline-y5mkg3h4` and are not included in the final changes.
+- Emulator state was restored: Grace notification-listener access remains absent as before; no test-posting permission is granted; no synthetic fixture notifications remain. Debug/test APKs are installed as permitted; no uninstall, data clear, default-HOME, or wallpaper change was performed.
+- The release APK/hash above still identifies the artifact built from `710382f` and does not include this source change. No release rebuild/install was done.

@@ -61,6 +61,7 @@ import com.galaxyrio.gracelauncher.data.media.MediaSnapshot
 import com.galaxyrio.gracelauncher.data.media.NowPlaying
 import com.galaxyrio.gracelauncher.data.notifications.AppNotification
 import com.galaxyrio.gracelauncher.data.notifications.NotificationReplyResult
+import com.galaxyrio.gracelauncher.data.notifications.appNotificationBucketKey
 import com.galaxyrio.gracelauncher.data.notifications.appNotifications
 import com.galaxyrio.gracelauncher.data.weather.BreezyWeatherRepository
 import com.galaxyrio.gracelauncher.data.weather.WeatherState
@@ -134,9 +135,16 @@ data class LauncherUiState(
         ?: privateFolder.takeIf { it.key == key }?.let(::folderItem)
         ?: folders.firstOrNull { it.key == key }?.let(::folderItem)
 
-    fun notificationsFor(app: LauncherApp): List<AppNotification> =
-        if (app.user == null && app.userSerial == null && app.shortcut == null && !app.isPrivateSpace)
-            notifications[app.packageName].orEmpty() else emptyList()
+    fun notificationsFor(app: LauncherApp): List<AppNotification> = when {
+        app.shortcut != null || app.isPrivateSpace -> emptyList()
+        app.user == null && app.userSerial == null ->
+            notifications[appNotificationBucketKey(app.packageName, null)].orEmpty().filter { it.userSerial == null }
+        app.isWorkProfile && app.user != null && app.userSerial != null &&
+            app.userSerial in workProfileSerials && apps.any { it.key == app.key } ->
+            notifications[appNotificationBucketKey(app.packageName, app.userSerial)].orEmpty()
+                .filter { it.userSerial == app.userSerial }
+        else -> emptyList()
+    }
 
     fun isPrivateProfileItem(key: String): Boolean = isPrivateOrUnknownProfileKey(key, workProfileSerials)
 
@@ -374,6 +382,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun refreshApps() {
+        appNotifications.refreshProfileVisibility()
         mediaRepository.refresh()
         refreshWeather()
         // Both HOME and the standalone settings Activity call this on resume;

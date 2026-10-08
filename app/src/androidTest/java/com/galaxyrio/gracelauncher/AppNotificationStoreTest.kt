@@ -18,9 +18,12 @@ import androidx.core.app.Person
 import androidx.core.content.ContextCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.galaxyrio.gracelauncher.data.LauncherApp
 import com.galaxyrio.gracelauncher.data.notifications.AppNotificationStore
 import com.galaxyrio.gracelauncher.data.notifications.NotificationReplyResult
+import com.galaxyrio.gracelauncher.data.notifications.appNotificationBucketKey
 import com.galaxyrio.gracelauncher.data.notifications.replyBlockedByKeyguard
+import com.galaxyrio.gracelauncher.ui.LauncherUiState
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -106,14 +109,94 @@ class AppNotificationStoreTest {
         assertTrue(cancelled.isEmpty())
     }
 
-    @Test fun mediaSecretAndOtherProfilesAreNotShownAsAppMessages() = main {
+    @Test fun mediaSecretAndUnclassifiedProfilesAreNotShownAsAppMessages() = main {
         val player = MediaSession(context, "notification-filter-test")
         try {
             store.posted(sbn(1, builder().setStyle(Notification.MediaStyle().setMediaSession(player.sessionToken)).build()))
             store.posted(sbn(2, builder().setVisibility(Notification.VISIBILITY_SECRET).build()))
             store.posted(sbn(3, user = UserHandle.getUserHandleForUid(1_000_000)))
+            store.posted(sbn(4, user = UserHandle.getUserHandleForUid(1_100_000)))
             assertTrue(notifications().isEmpty())
         } finally { player.release() }
+    }
+
+    @Test fun managedWorkNotificationKeepsItsProfileBucketAndReplyPendingIntent() {
+        val workUser = UserHandle.getUserHandleForUid(1_000_000)
+        val workSerial = 77L
+        val pending = replyPendingIntent(810, WORK_REPLY_ACTION)
+        val received = AtomicReference<Intent?>()
+        val delivered = CountDownLatch(1)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent != null) { received.set(Intent(intent)); delivered.countDown() }
+            }
+        }
+        ContextCompat.registerReceiver(context, receiver, IntentFilter(WORK_REPLY_ACTION), ContextCompat.RECEIVER_NOT_EXPORTED)
+        try {
+            val input = RemoteInput.Builder("work_reply").build()
+            main {
+                store.connected(emptyList(), resolveWorkProfileSerial = { user -> if (user == workUser) workSerial else null }) {
+                    cancelled += it
+                    true
+                }
+                store.posted(sbn(810, builder().setGroup("same-group").setGroupSummary(true).build()))
+                store.posted(sbn(810, builder().setGroup("same-group").addAction(replyAction(pending, input)).build(), user = workUser))
+
+                val personal = store.state.value[appNotificationBucketKey(context.packageName, null)].orEmpty().single()
+                val work = store.state.value[appNotificationBucketKey(context.packageName, workSerial)].orEmpty().single()
+                assertEquals(sbn(810).key, personal.key) // A same-name work child must not suppress the personal summary.
+                assertEquals(workSerial, work.userSerial)
+                assertTrue(work.canReply)
+                val component = android.content.ComponentName(context.packageName, "${context.packageName}.FixtureActivity")
+                val launcherState = LauncherUiState(
+                    apps = listOf(LauncherApp(component, "Personal copy", null),
+                        LauncherApp(component, "Work copy", null, user = workUser, userSerial = workSerial)),
+                    workProfileSerials = setOf(workSerial),
+                    notifications = store.state.value,
+                )
+                assertEquals(listOf(personal), launcherState.notificationsFor(launcherState.apps.first()))
+                assertEquals(listOf(work), launcherState.notificationsFor(launcherState.apps.last()))
+                assertEquals(NotificationReplyResult.Dispatched, store.reply(context, work.key, work.revision, "Work reply"))
+            }
+            assertTrue(delivered.await(3, TimeUnit.SECONDS))
+            val intent = requireNotNull(received.get())
+            assertEquals(WORK_REPLY_ACTION, intent.action)
+            assertEquals("Work reply", requireNotNull(RemoteInput.getResultsFromIntent(intent))
+                .getCharSequence("work_reply").toString())
+        } finally {
+            context.unregisterReceiver(receiver)
+            pending.cancel()
+        }
+    }
+
+    @Test fun cachedWorkActionsAndContentHideWhenTheProfileBecomesUnavailable() = main {
+        val workUser = UserHandle.getUserHandleForUid(1_000_000)
+        val workSerial = 77L
+        var profileAvailable = true
+        val reply = replyPendingIntent(811, WORK_REPLY_ACTION)
+        val content = replyPendingIntent(812, "fixture.notification.WORK_CONTENT")
+        try {
+            val input = RemoteInput.Builder("work_reply").build()
+            store.connected(emptyList(), resolveWorkProfileSerial = { user ->
+                if (user == workUser && profileAvailable) workSerial else null
+            }) { cancelled += it; true }
+            store.posted(sbn(811, builder().setContentIntent(content).addAction(replyAction(reply, input)).build(), user = workUser))
+            val item = notifications().single()
+            assertTrue(item.canDismiss)
+            assertTrue(item.canOpen)
+            assertTrue(item.canReply)
+
+            profileAvailable = false // Covers a quiet, storage-locked, removed, or no-longer-classified profile.
+            store.refreshProfileVisibility()
+            assertTrue(notifications().isEmpty())
+            assertFalse(store.dismiss(item.key, item.revision))
+            assertFalse(store.open(context, item.key, item.revision))
+            assertEquals(NotificationReplyResult.Unavailable, store.reply(context, item.key, item.revision, "Work reply"))
+            assertTrue(cancelled.isEmpty())
+        } finally {
+            reply.cancel()
+            content.cancel()
+        }
     }
 
     @Test fun disconnectClearsPrivateContentAndReconnectRebuildsOnlyCurrentNotifications() = main {
@@ -220,6 +303,38 @@ class AppNotificationStoreTest {
         } finally { pending.cancel() }
     }
 
+    @Test fun workReplyAuthenticationCannotBeSatisfiedByPersonalUnlock() {
+        assumeTrue(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+        assumeTrue("Unlock the disposable emulator before running focused reply tests",
+            !context.getSystemService(KeyguardManager::class.java).isDeviceLocked)
+        val workUser = UserHandle.getUserHandleForUid(1_000_000)
+        val pending = replyPendingIntent(813, WORK_REPLY_ACTION)
+        val delivered = CountDownLatch(1)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) { delivered.countDown() }
+        }
+        ContextCompat.registerReceiver(context, receiver, IntentFilter(WORK_REPLY_ACTION), ContextCompat.RECEIVER_NOT_EXPORTED)
+        try {
+            val action = Notification.Action.Builder(R.drawable.ms_info, "Reply", pending)
+                .addRemoteInput(RemoteInput.Builder("work_reply").build())
+                .setAuthenticationRequired(true).build()
+            main {
+                // Available work storage does not prove a separate work challenge is unlocked.
+                store.connected(emptyList(), resolveWorkProfileSerial = { user ->
+                    if (user == workUser) 77L else null
+                }) { cancelled += it; true }
+                store.posted(sbn(813, builder().addAction(action).build(), user = workUser))
+            }
+            val item = notifications().single()
+            assertFalse(item.canReply)
+            assertEquals(NotificationReplyResult.Unavailable, reply(item.key, item.revision, "Work reply"))
+            assertFalse(delivered.await(250, TimeUnit.MILLISECONDS))
+        } finally {
+            context.unregisterReceiver(receiver)
+            pending.cancel()
+        }
+    }
+
     @Test fun replyAuthenticationRequirementUsesTheActualLockState() {
         assumeTrue(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
         assumeTrue("Unlock the disposable emulator before running focused reply tests",
@@ -304,5 +419,6 @@ class AppNotificationStoreTest {
 
     private companion object {
         const val REPLY_ACTION = "fixture.notification.REPLY"
+        const val WORK_REPLY_ACTION = "fixture.notification.WORK_REPLY"
     }
 }
