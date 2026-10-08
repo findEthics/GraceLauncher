@@ -28,12 +28,13 @@ Earlier testing was stopped at the user's request before full device validation.
 
 Debug assembly and lint passed (553 warnings, 1 hint, no errors). Full instrumentation and the affected physical device were not revalidated. Double-tap recognition/action dispatch was tested, but the real system lock action was not exercised.
 
-At the earlier shortcut-validation checkpoint, the fixed debug APK was installed on the emulator with Grace as default HOME and notification access enabled. The signed release was rebuilt from commit `710382f`, including the shortcut fix and 24-hour home agenda. Release assembly, APK v3 signature, 16 KB alignment, and package/version metadata passed verification; this release APK was not installed or device-tested.
+At the earlier shortcut-validation checkpoint, the fixed debug APK was installed on the emulator with Grace as default HOME and notification access enabled. The then-current signed release was built from commit `710382f`, before the work-profile fix, and was superseded by the release below.
 
 APK: `app/build/outputs/apk/release/GraceLauncher-1.1.4-release.apk` (version `1.1.4`, code `6`; 9,091,059 bytes).
-SHA-256: `35e504a83710560e0b9ea3536669e74e6f5985f5dde9ccc133231afbb9ed663c`.
+SHA-256: `5baa14514ad19ff50a179656c13af263e29a88e633ba91bac50b8903ccf41735`.
+Built from source commit: `017761522a689055ac46bebd47016254e0aa267f` (includes the work-profile notification/reply fix).
 
-The APK reuses the existing local release signing identity, verified against the previous APK. It cannot update an installation signed with a different key. The keystore and its password file remain outside the repository under `~/.local/share/grace-launcher/signing/`; no new key or version bump was made.
+Release assembly passed; APK v3 signature, 16 KB alignment, package/version/min/target SDK, and non-debuggable metadata passed verification. The APK reuses the existing local release signing identity, verified against the previous APK. It was not installed or device-tested, and no live managed-profile/DPC test is claimed. Android/DPC policy may still block listener delivery; authentication-required work replies remain in Android's notification UI. The APK cannot update an installation signed with a different key. The keystore and its password file remain outside the repository under `~/.local/share/grace-launcher/signing/`; no new key or version bump was made.
 
 Calendar agenda follow-up:
 - Verified JDK 21.0.7 and the installed Android SDK using command-local `JAVA_HOME`/`ANDROID_HOME`; no SDK/JDK installation, `local.properties`, persistent environment configuration, default-HOME setting, or wallpaper change was made.
@@ -50,4 +51,4 @@ Work-profile notification fix follow-up:
 - Regression classification is synthetic: the test injects the same serial policy while exercising store parsing and a real Android `RemoteInput` PendingIntent, because no managed work profile/DPC device was available. No users/profiles were created. Actual managed-profile listener delivery and enterprise policy remain unverified; Android/DPC may suppress delivery even when the shade shows a notification.
 - Independent review accepted the work-profile fix after the authentication guard correction. The earlier unvalidated test manifest/service and system-fixture delta are backed up under `/tmp/grace-work-notification-baseline-y5mkg3h4` and are not included in the final changes.
 - Emulator state was restored: Grace notification-listener access remains absent as before; no test-posting permission is granted; no synthetic fixture notifications remain. Debug/test APKs are installed as permitted; no uninstall, data clear, default-HOME, or wallpaper change was performed.
-- The release APK/hash above still identifies the artifact built from `710382f` and does not include this source change. No release rebuild/install was done.
+- The release APK above is built from source commit `017761522a689055ac46bebd47016254e0aa267f` and includes this work-profile fix; the earlier `710382f` APK was superseded. No release install or live managed-profile test was performed.
