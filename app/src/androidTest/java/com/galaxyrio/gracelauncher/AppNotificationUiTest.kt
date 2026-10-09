@@ -2,6 +2,7 @@ package com.galaxyrio.gracelauncher
 
 import android.content.ComponentName
 import android.graphics.Bitmap
+import android.os.UserHandle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,11 +19,13 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.galaxyrio.gracelauncher.data.*
 import com.galaxyrio.gracelauncher.data.notifications.AppNotification
+import com.galaxyrio.gracelauncher.data.notifications.appNotificationBucketKey
 import com.galaxyrio.gracelauncher.data.notifications.NotificationReplyResult
 import com.galaxyrio.gracelauncher.ui.LauncherActions
 import com.galaxyrio.gracelauncher.ui.overlays.NotificationPopupItem
 import com.galaxyrio.gracelauncher.ui.LauncherScreen
 import com.galaxyrio.gracelauncher.ui.LauncherUiState
+import com.galaxyrio.gracelauncher.ui.components.LauncherAppRow
 import com.galaxyrio.gracelauncher.ui.theme.GraceLauncherTheme
 import java.io.File
 import org.junit.Assert.*
@@ -36,6 +39,7 @@ class AppNotificationUiTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val app = LauncherApp(ComponentName("fixture.chat", "ChatActivity"), "Messages", null)
     private val browser = LauncherApp(ComponentName("fixture.browser", "BrowserActivity"), "Chrome", null)
+    private val workApp = app.copy(label = "Work Messages", user = UserHandle.getUserHandleForUid(1_000_000), userSerial = 77L)
     private val message = AppNotification("message-1", app.packageName, "Two new messages",
         "My computer: This is a longer message preview. ".repeat(4).trim(), System.currentTimeMillis(), 1, true, true)
     private var notifications by mutableStateOf(listOf(message))
@@ -45,7 +49,7 @@ class AppNotificationUiTest {
     private var replyResult = NotificationReplyResult.Dispatched
     private var launchedApps = 0
 
-    private fun show(drawer: Boolean = false, shortcutAccess: Boolean = true) {
+    private fun show(drawer: Boolean = false, shortcutAccess: Boolean = true, targetApp: LauncherApp = app) {
         val shortcuts = ShortcutResult(if (shortcutAccess) ShortcutStatus.Ready else ShortcutStatus.DefaultLauncherRequired,
             if (shortcutAccess) listOf(LauncherShortcut("compose", app.packageName, "Compose", null),
                 LauncherShortcut("inbox", app.packageName, "Inbox", null)) else emptyList())
@@ -53,9 +57,10 @@ class AppNotificationUiTest {
             GraceLauncherTheme(dynamicColor = false) {
                 Box(Modifier.fillMaxSize().background(Color(0xFF25302F))) {
                     LauncherScreen(
-                        LauncherUiState(apps = listOf(browser, app), favoriteKeys = setOf(browser.key, app.key),
+                        LauncherUiState(apps = listOf(browser, targetApp), favoriteKeys = setOf(browser.key, targetApp.key),
                             isLoadingApps = false, hasShortcutAccess = shortcutAccess, textMode = WallpaperTextMode.Light,
-                            notifications = mapOf(app.packageName to notifications)),
+                            workProfileSerials = if (targetApp.isWorkProfile) setOf(requireNotNull(targetApp.userSerial)) else emptySet(),
+                            notifications = mapOf(appNotificationBucketKey(targetApp.packageName, targetApp.userSerial) to notifications)),
                         onDateClick = {}, onClockClick = {}, onToggleFavorite = {}, onLaunchApp = { launchedApps++ },
                         initialDrawerOpen = drawer,
                         actions = LauncherActions(
@@ -97,6 +102,56 @@ class AppNotificationUiTest {
         compose.onNodeWithTag("notification:${message.key}").assertDoesNotExist()
         compose.onNodeWithTag("shortcut:compose").assertIsDisplayed()
         compose.runOnIdle { assertEquals(listOf(message.key), dismissed); assertEquals(0, launchedApps); assertTrue(opened.isEmpty()) }
+    }
+
+    @Test fun workHomePreviewOpensItsNotificationAndOffersReply() {
+        notifications = listOf(message.copy(userSerial = workApp.userSerial, canReply = true))
+        show(targetApp = workApp)
+        compose.onNode(hasText(message.title) and hasAnyAncestor(hasTestTag("home_content")), useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("notification_arrow:app:${workApp.key}").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("notification:${message.key}").assertIsDisplayed()
+        compose.onNodeWithTag("notification_reply_button:${message.key}").performClick()
+        compose.onNodeWithTag("notification_reply_input:${message.key}").performTextInput("Work reply")
+        compose.onNodeWithTag("notification_reply_send:${message.key}").performClick()
+        compose.runOnIdle {
+            assertEquals(listOf(Triple(message.key, message.revision, "Work reply")), replies)
+            assertTrue(opened.isEmpty()); assertTrue(dismissed.isEmpty())
+        }
+    }
+
+    @Test fun workDrawerPreviewOpensItsNotification() {
+        notifications = listOf(message.copy(userSerial = workApp.userSerial))
+        show(drawer = true, targetApp = workApp)
+        compose.onNode(hasText(message.title) and hasAnyAncestor(hasTestTag("app_drawer")), useUnmergedTree = true).assertIsDisplayed()
+        compose.onNode(hasTestTag("notification_arrow:app:${workApp.key}") and hasAnyAncestor(hasTestTag("app_drawer")))
+            .assertIsDisplayed().performClick()
+        compose.onNodeWithTag("notification:${message.key}").assertIsDisplayed()
+        compose.runOnIdle { assertTrue(opened.isEmpty()); assertTrue(dismissed.isEmpty()) }
+    }
+
+    @Test fun rowsStillHidePrivateShortcutUnknownAndMismatchedProfileNotifications() {
+        var rowApp by mutableStateOf(workApp.copy(isPrivateSpace = true))
+        var rowNotification by mutableStateOf(message.copy(userSerial = rowApp.userSerial))
+        compose.setContent {
+            GraceLauncherTheme(dynamicColor = false) {
+                LauncherAppRow(rowApp, onClick = {}, onLongClick = {}, notification = rowNotification)
+            }
+        }
+        val blocked = listOf(
+            workApp.copy(isPrivateSpace = true) to workApp.userSerial,
+            workApp.copy(shortcut = LauncherShortcut("compose", app.packageName, "Compose", null)) to workApp.userSerial,
+            app.copy(user = workApp.user) to null,
+            workApp to 88L,
+            app to workApp.userSerial,
+        )
+        for ((blockedApp, serial) in blocked) {
+            compose.runOnIdle {
+                rowApp = blockedApp
+                rowNotification = message.copy(userSerial = serial)
+            }
+            compose.onNodeWithText(message.title, useUnmergedTree = true).assertDoesNotExist()
+            compose.onNodeWithTag("notification_arrow:app:${blockedApp.key}").assertDoesNotExist()
+        }
     }
 
     @Test fun drawerRightSwipeOpensSamePanelAndRightDismissKeepsOtherMessages() {

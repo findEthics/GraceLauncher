@@ -173,7 +173,11 @@ fun LauncherAppRow(
         detailsDescription = stringResource(R.string.app_actions),
         modifier = modifier,
         highlighted = highlighted,
-        notification = notification.takeIf { app.shortcut == null && app.user == null && app.userSerial == null && !app.isPrivateSpace },
+        notification = notification?.takeIf {
+            app.shortcut == null && !app.isPrivateSpace &&
+                (app.isWorkProfile || app.user == null && app.userSerial == null) &&
+                it.packageName == app.packageName && it.userSerial == app.userSerial
+        },
         showLabel = showLabel,
     ) { iconModifier -> AppIcon(app, modifier = iconModifier, size = 40.dp) }
 }
