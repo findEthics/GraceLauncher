@@ -247,21 +247,19 @@ internal fun SwipeRevealPanel(
         Layout(
             modifier = Modifier.fillMaxSize(),
             content = {
-                LauncherPanelTheme {
-                    Surface(
-                        modifier = Modifier.testTag(panelTag).semantics {
-                            paneTitle = title
-                            dismiss { reveal.expanded = false; true }
-                            progressBarRangeInfo = ProgressBarRangeInfo(spatial.value.coerceIn(0f, 1f), 0f..1f)
-                        }.graphicsLayer { alpha = (spatial.value * 12f).coerceIn(0f, 1f) },
-                        shape = PopupContainerShape(anchor, spatial.value),
-                        color = MaterialTheme.colorScheme.surface,
-                        shadowElevation = 16.dp * spatial.value.coerceIn(0f, 1f),
-                    ) {}
-                    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-                        Column(Modifier.padding(horizontal = 6.dp, vertical = 12.dp)) {
-                            content(maxListHeight)
-                        }
+                Surface(
+                    modifier = Modifier.testTag(panelTag).semantics {
+                        paneTitle = title
+                        dismiss { reveal.expanded = false; true }
+                        progressBarRangeInfo = ProgressBarRangeInfo(spatial.value.coerceIn(0f, 1f), 0f..1f)
+                    }.graphicsLayer { alpha = (spatial.value * 12f).coerceIn(0f, 1f) },
+                    shape = PopupContainerShape(anchor, spatial.value),
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 16.dp * spatial.value.coerceIn(0f, 1f),
+                ) {}
+                CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+                    Column(Modifier.padding(horizontal = 6.dp, vertical = 12.dp)) {
+                        content(maxListHeight)
                     }
                 }
             },
