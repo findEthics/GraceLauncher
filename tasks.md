@@ -38,10 +38,28 @@ only the "<contact-name>: <message>" should be displayed (Me: t31 in this case)
 - [x] Remove the unused `LauncherSymbol.Category` entry, drawable, and provenance row.
 - [x] Remove the identity `LauncherPanelTheme` wrapper and compose its two callers directly.
 - [x] Remove the root Gradle file's redundant `apply false` plugin aliases.
-- [ ] Add a left swipe gesture on home screen apps along side the existing right swipe (that expands the shortcut popup or notification preview). This should dismiss all the notifications for that app (similar to the left swipe in the popu up preview)
-
+- [x] Add a left swipe gesture on home screen apps alongside the existing right swipe (that expands the shortcut popup or notification preview). This should dismiss all the notifications for that app (similar to the left swipe in the popu up preview)
+  - Home-only left-origin swipes dispatch on release, using every eligible clearable notification's key/revision, not the capped preview. Cancellation and right-popup reversals do not dismiss; drawer/folders are unchanged. An equivalent accessibility action is available.
+- [x] Cap the number of notifications displayed in the preview to 3 (similar to the cap in the popup preview)
+  - Shared home/drawer rows show the newest three after profile/privacy filtering. Backing lists and popup content remain uncapped; the popup's existing limit is a scrollable viewport, not a notification-count cap.
+- [x] Cap the number of lines displayed for each notification in the preview to 3 (similar to the cap in the popup preview)
+  - A distinct title counts toward three total lines. Duplicate sender titles remain suppressed; body lines stay separate, with existing single-line ellipsis.
+- [x] In the app pop up (after right swipe) display, dismissing the last notification should close the popup
+  - Closure waits for an accepted dismissal followed by live-list emptiness. Rejected/ongoing notifications and initially empty popups remain open; shortcuts/widgets remain configured for reopening.
+- [x] the hide status bar has a fade out animation, remove this and make it instant instead;
+  - Timeout hiding bypasses the launcher's custom 220 ms fade. The three-second delay, animated reveal, lifecycle handling, and static content gradient are unchanged. Android-owned hide animation/timing is not verified.
 
 ## Validation and release status
+
+Notification gestures/previews and status-bar follow-up (working-tree changes from `031fdec3cd1c8597b8419b2307c75eaefe0b644b`):
+- Red-before-green: the home bulk-swipe regression failed before production edits because left swipes dispatched no dismissals. Log: `/tmp/grace-notifications-red.zGxnRP/red-bulk-swipe.log`.
+- Final command-local JDK 21 / existing Android SDK validation passed: `bash ./gradlew --offline -Pandroid.builder.sdkDownload=false :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug`. JVM totals: 55 tests, no failures/errors/skips. Lint: 0 errors, 547 warnings, 1 hint. The installed platform is `platforms/android-37.0`; no JDK/SDK installation or persistent configuration change was needed.
+- Direct instrumentation on `emulator-5554`: notification UI 32/32, store 18/18, profile identity 6/6, home gestures 10/10, foreground gradient 2/2 passed. Broader `LauncherInteractionTest` passed 16/19; the combined run was 84/87, not a full pass.
+- All three interaction failures also reproduced on an isolated build of the original commit: `homeShowsOneCompactEventAndOnlyPopulatedLetters` still expects the second qualifying agenda occurrence to be absent; `oneUnbrokenDragOpensScrubsReversesAndReturnsHome` and `cancellingHeldAlphabetSelectionRestoresTheCompleteList` fail the existing `section:C` display assertion. These unrelated tests/source were not changed. Current debug/test APKs were restored afterward using update installs only.
+- Final build, instrumentation, baseline comparison, and restore logs: `/tmp/grace-refinements-integration.OssuaR/`. Focused implementation logs: `/tmp/grace-notifications-final.X9cVow/` and `/tmp/grace-statusbar-validation-49120776/`. Independent source/test review found no issues, with verification caveats.
+- Notification/profile/delayed-removal coverage uses synthetic fixtures; live listener removal, a real managed work profile, physical-device behavior, and manual live-message verification remain untested. Gesture tests do not directly combine vertical-scroll/edit gating with dismissible notifications. Existing `StatusBarFadeTest` covers the static gradient, not controller hide timing; no new hide-timing test was added.
+- Source/resource/task diff checks passed; pre-existing whitespace in caller-owned `tasks-2.md` remains outside this change. Its staged/unstaged content and the unrelated dataset/export/model files were preserved. No permissions/profile/default-HOME/wallpaper/data reset/uninstall, commit/push, version/signing, or release changes were made. The existing signed release below does not include this follow-up.
+
 
 Earlier testing was stopped at the user's request before full device validation. This follow-up passed 49 JVM tests and 41 focused instrumentation tests, with no skips, on the Android 16/API 36 emulator. The focused classes cover the shortcut repository, home gestures, notification UI/store, real notification-listener updates/dismissal, and accessibility-service metadata.
 

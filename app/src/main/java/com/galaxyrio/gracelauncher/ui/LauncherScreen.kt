@@ -679,6 +679,11 @@ internal fun LauncherScreen(
             }
         },
     )
+    val homeRowGestures = rowGestures.copy(onDismissNotifications = { app ->
+        latestUiState.notificationsFor(app).filter { it.canDismiss }.forEach { notification ->
+            actions.dismissNotification(notification.key, notification.revision)
+        }
+    })
     val highlightedAppKey = (overlay as? LauncherOverlay.AppDetails)?.app?.key
     val openPrivateSpace: (Rect) -> Unit = { bounds ->
         when {
@@ -810,7 +815,7 @@ internal fun LauncherScreen(
                 widgetInputEnabled = !drawerOpen && overlay == null,
                 onTopOffsetChange = { offset -> actions.updateSettings { it.copy(homeLayout = it.homeLayout.copy(topOffsetDp = offset)) } },
                 onWidgetHeightChange = { height -> actions.updateSettings { it.copy(homeLayout = it.homeLayout.copy(widgetHeightDp = height)) } },
-                rowGestures = rowGestures,
+                rowGestures = homeRowGestures,
                 highlightedAppKey = highlightedAppKey,
                 onOpenFolder = openFolder,
                 onEditFolder = editFolder,

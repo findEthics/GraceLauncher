@@ -96,7 +96,7 @@ private class LauncherStatusBar(window: Window, private val view: View, private 
     private var animationController: WindowInsetsAnimationControllerCompat? = null
     private var animator: ValueAnimator? = null
     private val hideLater = Runnable {
-        if (active && autoHide && view.hasWindowFocus()) setShown(false, animate = true)
+        if (active && autoHide && view.hasWindowFocus()) setShown(false, animate = false)
     }
 
     init {

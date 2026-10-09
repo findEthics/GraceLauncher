@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.test.*
@@ -44,32 +45,41 @@ class AppNotificationUiTest {
         "My computer: This is a longer message preview. ".repeat(4).trim(), System.currentTimeMillis(), 1, true, true)
     private var notifications by mutableStateOf(listOf(message))
     private val dismissed = mutableListOf<String>()
+    private var acceptNotificationDismissals = true
+    private var removeNotificationsImmediately = true
     private val opened = mutableListOf<String>()
     private val replies = mutableListOf<Triple<String, Long, String>>()
     private var replyResult = NotificationReplyResult.Dispatched
     private var launchedApps = 0
 
-    private fun show(drawer: Boolean = false, shortcutAccess: Boolean = true, targetApp: LauncherApp = app) {
+    private fun show(
+        drawer: Boolean = false,
+        shortcutAccess: Boolean = true,
+        targetApp: LauncherApp = app,
+        additionalApps: List<LauncherApp> = emptyList(),
+    ) {
         val shortcuts = ShortcutResult(if (shortcutAccess) ShortcutStatus.Ready else ShortcutStatus.DefaultLauncherRequired,
             if (shortcutAccess) listOf(LauncherShortcut("compose", app.packageName, "Compose", null),
                 LauncherShortcut("inbox", app.packageName, "Inbox", null)) else emptyList())
+        val shownApps = listOf(browser, targetApp) + additionalApps
         compose.setContent {
             GraceLauncherTheme(dynamicColor = false) {
                 Box(Modifier.fillMaxSize().background(Color(0xFF25302F))) {
                     LauncherScreen(
-                        LauncherUiState(apps = listOf(browser, targetApp), favoriteKeys = setOf(browser.key, targetApp.key),
+                        LauncherUiState(apps = shownApps,
+                            favoriteKeys = shownApps.mapTo(linkedSetOf(), LauncherApp::key),
                             isLoadingApps = false, hasShortcutAccess = shortcutAccess, textMode = WallpaperTextMode.Light,
-                            workProfileSerials = if (targetApp.isWorkProfile) setOf(requireNotNull(targetApp.userSerial)) else emptySet(),
-                            notifications = mapOf(appNotificationBucketKey(targetApp.packageName, targetApp.userSerial) to notifications)),
+                            workProfileSerials = shownApps.mapNotNull { it.userSerial }.toSet(),
+                            notifications = notifications.groupBy { appNotificationBucketKey(it.packageName, it.userSerial) }),
                         onDateClick = {}, onClockClick = {}, onToggleFavorite = {}, onLaunchApp = { launchedApps++ },
                         initialDrawerOpen = drawer,
                         actions = LauncherActions(
                             shortcuts = { shortcuts }, cachedShortcuts = { shortcuts },
                             dismissNotification = { key, revision ->
                                 val current = notifications.firstOrNull { it.key == key && it.revision == revision }
-                                if (current == null) false else {
+                                if (current == null || !acceptNotificationDismissals) false else {
                                     dismissed += key
-                                    notifications = notifications.filterNot { it.key == key }
+                                    if (removeNotificationsImmediately) notifications = notifications.filterNot { it.key == key }
                                     true
                                 }
                             },
@@ -100,7 +110,7 @@ class AppNotificationUiTest {
         assertTrue("'$text' under $ancestorTag has empty bounds: $bounds", bounds.width > 0 && bounds.height > 0)
     }
 
-    @Test fun homePreviewArrowOpensNotificationAboveShortcutsAndLeftSwipeClearsOnlyIt() {
+    @Test fun homePreviewArrowOpensNotificationAboveShortcutsAndLastDismissClosesPopup() {
         show()
         compose.onNode(hasText("Two new messages") and hasAnyAncestor(hasTestTag("home_content")), useUnmergedTree = true).assertIsDisplayed()
         screenshot("notifications-home.png")
@@ -111,8 +121,203 @@ class AppNotificationUiTest {
         screenshot("notifications-popup.png")
         compose.onNodeWithTag("notification:${message.key}").performTouchInput { swipeLeft() }
         compose.onNodeWithTag("notification:${message.key}").assertDoesNotExist()
+        compose.onNodeWithTag("shortcut_popup").assertDoesNotExist()
+        compose.onNodeWithTag("app:${app.key}").performTouchInput { swipeRight() }
         compose.onNodeWithTag("shortcut:compose").assertIsDisplayed()
         compose.runOnIdle { assertEquals(listOf(message.key), dismissed); assertEquals(0, launchedApps); assertTrue(opened.isEmpty()) }
+    }
+
+    @Test fun homeAppLeftSwipeDismissesOnlyOnReleaseAndOnlyWithNotifications() {
+        notifications = listOf(message)
+        show()
+        val row = compose.onNodeWithTag("app:${app.key}")
+        row.performTouchInput {
+            down(center)
+            moveTo(Offset(centerX - width * 0.45f, centerY), delayMillis = 180)
+            cancel()
+        }
+        compose.runOnIdle { assertTrue(dismissed.isEmpty()); assertEquals(listOf(message), notifications) }
+
+        compose.runOnIdle { notifications = emptyList() }
+        row.performTouchInput { swipeLeft() }
+        compose.runOnIdle { assertTrue(dismissed.isEmpty()); assertTrue(notifications.isEmpty()) }
+    }
+
+    @Test fun drawerAppLeftSwipeDoesNotDismissNotifications() {
+        notifications = listOf(message)
+        show(drawer = true)
+        compose.onNodeWithTag("app:${app.key}").performTouchInput { swipeLeft() }
+        compose.onNode(hasText(message.title) and hasAnyAncestor(hasTestTag("app_drawer")), useUnmergedTree = true)
+            .assertIsDisplayed()
+        compose.runOnIdle { assertTrue(dismissed.isEmpty()); assertEquals(listOf(message), notifications) }
+    }
+
+    @Test fun homeAppLeftSwipeDismissesEveryClearableNotificationOnlyForItsProfile() {
+        val postedAt = System.currentTimeMillis()
+        val personal = message.copy(key = "personal", title = "Personal", text = "Personal message", postedAt = postedAt)
+        val work = (0..3).map { index ->
+            message.copy(key = "work-$index", title = "Work sender $index", text = "Work message $index",
+                postedAt = postedAt - index * 60_000L, revision = index + 2L, userSerial = workApp.userSerial)
+        }
+        val ongoing = message.copy(key = "work-ongoing", title = "Ongoing", text = "Ongoing work message",
+            postedAt = postedAt + 1, canDismiss = false, userSerial = workApp.userSerial)
+        notifications = listOf(personal, ongoing) + work.reversed()
+        show(targetApp = workApp, additionalApps = listOf(app))
+
+        compose.onNodeWithTag("app:${workApp.key}").performTouchInput { swipeLeft() }
+        compose.runOnIdle {
+            assertEquals(work.map { it.key }.toSet(), dismissed.toSet())
+            assertEquals(setOf(personal.key, ongoing.key), notifications.map { it.key }.toSet())
+        }
+    }
+
+    @Test fun homeAppRowOffersAnAccessibleBulkDismissAction() {
+        val first = message.copy(key = "accessible-1")
+        val second = message.copy(key = "accessible-2", revision = 2)
+        notifications = listOf(first, second)
+        show()
+
+        val action = compose.onNode(
+            hasTestTag("app:${app.key}") and hasAnyAncestor(hasTestTag("home_content")), useUnmergedTree = true,
+        ).fetchSemanticsNode().config[SemanticsActions.CustomActions]
+            .single { it.label == context.getString(R.string.notification_dismiss_all) }
+        assertTrue(action.action())
+        compose.runOnIdle { assertEquals(setOf(first.key, second.key), dismissed.toSet()); assertTrue(notifications.isEmpty()) }
+    }
+
+    @Test fun homePreviewShowsOnlyNewestThreeEligibleNotificationsWhilePopupKeepsAll() {
+        val postedAt = System.currentTimeMillis()
+        val eligible = (0..4).map { index ->
+            message.copy(key = "eligible-$index", title = "Sender $index", text = "Sender $index: Body $index",
+                postedAt = postedAt - index * 60_000L, revision = index + 2L, userSerial = workApp.userSerial)
+        }
+        val wrongProfile = message.copy(key = "wrong-profile-newest", title = "Wrong profile newest", text = "Do not preview",
+            postedAt = postedAt + 2, userSerial = 88L)
+        val wrongPackage = message.copy(key = "wrong-package-newest", packageName = "fixture.foreign",
+            title = "Wrong package newest", text = "Do not preview", postedAt = postedAt + 1, userSerial = workApp.userSerial)
+        notifications = listOf(eligible[4], wrongProfile, eligible[1], wrongPackage, eligible[0], eligible[3], eligible[2])
+        show(targetApp = workApp)
+
+        eligible.take(3).forEach { assertPreviewTextVisible(it.text, "home_content") }
+        eligible.drop(3).forEach { compose.onNodeWithText(it.text, useUnmergedTree = true).assertDoesNotExist() }
+        compose.onNodeWithText(wrongProfile.title, useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText(wrongPackage.title, useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("notification_arrow:app:${workApp.key}").performClick()
+        eligible.forEach { notification ->
+            val tag = "notification:${notification.key}"
+            compose.onNodeWithTag("shortcut_list").performScrollToNode(hasTestTag(tag))
+            compose.onNodeWithTag(tag).assertIsDisplayed()
+            assertPreviewTextVisible(notification.text, tag)
+        }
+    }
+
+    @Test fun drawerPreviewShowsOnlyNewestThreeNotificationsButPopupKeepsAll() {
+        val postedAt = System.currentTimeMillis()
+        val all = (0..4).map { index ->
+            message.copy(key = "drawer-$index", title = "Drawer sender $index", text = "Drawer message $index",
+                postedAt = postedAt - index * 60_000L, revision = index + 2L, userSerial = workApp.userSerial)
+        }
+        notifications = all.reversed()
+        show(drawer = true, targetApp = workApp)
+
+        all.take(3).forEach { assertPreviewTextVisible(it.text, "app_drawer") }
+        all.drop(3).forEach { compose.onNodeWithText(it.text, useUnmergedTree = true).assertDoesNotExist() }
+        compose.onNode(hasTestTag("notification_arrow:app:${workApp.key}") and hasAnyAncestor(hasTestTag("app_drawer")))
+            .performClick()
+        all.forEach { notification ->
+            val tag = "notification:${notification.key}"
+            compose.onNodeWithTag("shortcut_list").performScrollToNode(hasTestTag(tag))
+            compose.onNodeWithTag(tag).assertIsDisplayed()
+        }
+    }
+
+    @Test fun inlineNotificationLineLimitCountsDistinctTitleAndKeepsSenderSuppression() {
+        val titled = message.copy(key = "line-cap-title", title = "Group summary title",
+            text = "First body line\n\nSecond body line\nThird body line\nFourth body line")
+        notifications = listOf(titled)
+        show()
+
+        listOf("Group summary title", "First body line", "Second body line").forEach {
+            assertPreviewTextVisible(it, "home_content")
+        }
+        listOf("Third body line", "Fourth body line").forEach {
+            compose.onNodeWithText(it, useUnmergedTree = true).assertDoesNotExist()
+        }
+        val sender = message.copy(key = "line-cap-sender", title = "Me",
+            text = "Me: First reply\n\nMe: Second reply\nThird reply\nFourth reply")
+        compose.runOnIdle { notifications = listOf(sender) }
+        compose.onNodeWithText("Me", useUnmergedTree = true).assertDoesNotExist()
+        listOf("Me: First reply", "Me: Second reply", "Third reply").forEach {
+            assertPreviewTextVisible(it, "home_content")
+        }
+        compose.onNodeWithText("Fourth reply", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test fun leftReversalOfHomePopupOnlyCollapsesAndNeverDismisses() {
+        notifications = listOf(message)
+        show()
+        val density = context.resources.displayMetrics.density
+        val row = compose.onNodeWithTag("app:${app.key}")
+        row.performTouchInput {
+            down(Offset(8f, centerY))
+            moveTo(Offset(8f + 24f * density, centerY), delayMillis = 150)
+        }
+        compose.onNodeWithTag("shortcut_popup").assertIsDisplayed()
+        row.performTouchInput {
+            moveTo(Offset(8f + 12f * density, centerY), delayMillis = 150)
+            up()
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("shortcut_popup").assertDoesNotExist()
+        compose.runOnIdle { assertTrue(dismissed.isEmpty()); assertEquals(listOf(message), notifications) }
+    }
+
+    @Test fun acceptedPopupDismissalsWaitForTheLiveListAndCloseAfterRapidConsecutiveRemovals() {
+        val second = message.copy(key = "message-2", title = "Another message", revision = 2)
+        notifications = listOf(message, second)
+        removeNotificationsImmediately = false
+        show()
+        compose.onNodeWithTag("app:${app.key}").performTouchInput { swipeRight() }
+
+        compose.onNodeWithTag("notification:${message.key}").performTouchInput { swipeLeft() }
+        compose.onNodeWithTag("notification:${second.key}").performTouchInput { swipeLeft() }
+        compose.runOnIdle {
+            assertEquals(setOf(message.key, second.key), dismissed.toSet())
+            assertEquals(2, notifications.size)
+        }
+        compose.onNodeWithTag("shortcut_popup").assertIsDisplayed()
+
+        compose.runOnIdle { notifications = listOf(second) }
+        compose.onNodeWithTag("shortcut_popup").assertIsDisplayed()
+        compose.runOnIdle { notifications = emptyList() }
+        compose.onNodeWithTag("shortcut_popup").assertDoesNotExist()
+        compose.onNodeWithTag("app:${app.key}").performTouchInput { swipeRight() }
+        compose.onNodeWithTag("shortcut:compose").assertIsDisplayed()
+    }
+
+    @Test fun rejectedOrOngoingPopupDismissalLeavesThePopupOpen() {
+        notifications = listOf(message)
+        acceptNotificationDismissals = false
+        show()
+        compose.onNodeWithTag("app:${app.key}").performTouchInput { swipeRight() }
+        compose.onNodeWithTag("notification:${message.key}").performTouchInput { swipeLeft() }
+        compose.onNodeWithTag("shortcut_popup").assertIsDisplayed()
+        compose.onNodeWithTag("notification:${message.key}").assertIsDisplayed()
+        compose.runOnIdle { assertTrue(dismissed.isEmpty()); assertEquals(listOf(message), notifications) }
+
+        compose.runOnIdle { notifications = listOf(message.copy(canDismiss = false)) }
+        compose.onNodeWithTag("notification:${message.key}").performTouchInput { swipeLeft() }
+        compose.onNodeWithTag("shortcut_popup").assertIsDisplayed()
+        compose.runOnIdle { assertTrue(dismissed.isEmpty()); assertEquals(1, notifications.size) }
+    }
+
+    @Test fun popupOpenedWithoutNotificationsStaysOpen() {
+        notifications = emptyList()
+        show()
+        compose.onNodeWithTag("app:${app.key}").performTouchInput { swipeRight() }
+        compose.onNodeWithTag("shortcut_popup").assertIsDisplayed()
+        compose.onNodeWithTag("shortcut:compose").assertIsDisplayed()
+        compose.runOnIdle { assertTrue(dismissed.isEmpty()) }
     }
 
     @Test fun workHomePreviewOpensItsNotificationAndOffersReply() {

@@ -88,6 +88,11 @@ fun ShortcutPopup(
         item.shortcut?.let { actions.launchShortcutAt?.invoke(it, bounds) ?: actions.launchShortcut(it) }
     },
 ) {
+    var acceptedNotificationDismissal by remember(app.key) { mutableStateOf(false) }
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
+    LaunchedEffect(acceptedNotificationDismissal, notifications.isEmpty()) {
+        if (acceptedNotificationDismissal && notifications.isEmpty()) currentOnDismiss()
+    }
     val isFolder = app.folderId != null
     val isPrivateFolder = app.folderId == PrivateSpaceFolderId
     var retry by remember { mutableIntStateOf(0) }
@@ -128,7 +133,11 @@ fun ShortcutPopup(
                 NotificationPopupItem(
                     app, notification,
                     onOpen = { if (actions.openNotification(notification.key, notification.revision)) onDismiss() },
-                    onDismiss = { actions.dismissNotification(notification.key, notification.revision) },
+                    onDismiss = {
+                        actions.dismissNotification(notification.key, notification.revision).also { accepted ->
+                            if (accepted) acceptedNotificationDismissal = true
+                        }
+                    },
                     onReply = actions.replyNotification,
                     modifier = Modifier.animateItem(),
                     gesturesEnabled = !reveal.dragging && reveal.expanded,

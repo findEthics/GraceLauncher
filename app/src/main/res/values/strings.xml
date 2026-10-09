@@ -152,6 +152,7 @@
 
     <!-- Notifications -->
     <string name="notification_dismiss">Dismiss</string>
+    <string name="notification_dismiss_all">Dismiss all notifications</string>
     <string name="notification_now">now</string>
     <string name="notification_minutes">%1$dm</string>
     <string name="notification_hours">%1$dh</string>
