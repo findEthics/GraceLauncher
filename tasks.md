@@ -47,9 +47,16 @@ only the "<contact-name>: <message>" should be displayed (Me: t31 in this case)
 - [x] In the app pop up (after right swipe) display, dismissing the last notification should close the popup
   - Closure waits for an accepted dismissal followed by live-list emptiness. Rejected/ongoing notifications and initially empty popups remain open; shortcuts/widgets remain configured for reopening.
 - [x] the hide status bar has a fade out animation, remove this and make it instant instead;
-  - Timeout hiding bypasses the launcher's custom 220 ms fade. The three-second delay, animated reveal, lifecycle handling, and static content gradient are unchanged. Android-owned hide animation/timing is not verified.
+  - API 30+ nonanimated hiding now obtains insets control and finishes directly at the hidden endpoint, avoiding Android's default hide animation as well as the custom fade. The three-second delay, animated reveal, lifecycle handling, and static gradient remain unchanged. API 28–29 or denied control retain a potentially animated fallback.
 
 ## Validation and release status
+
+Native status-bar hide correction (after the user reproduced fading in the signed release):
+- Root cause: the initial `animate=false` change still called `WindowInsetsControllerCompat.hide()`, which starts Android's own animator. The API 30+ fix reuses controlled insets and calls `finish(false)` on readiness; the SDK contract applies that endpoint without further animation. Reveal/request callbacks retain focus, lifecycle, and ownership checks.
+- New `StatusBarHideTest` exercises the real reveal/timeout path and native animation callbacks on API 36. It failed before the fix with intermediate hide fractions, then passed 1/1: the hide finished in one endpoint update, roughly 22 ms from prepare to end, with no intermediate fractions. Animated pull reveal remained present. API 28–35, physical devices, denied control, and focus/lifecycle-loss scenarios were not instrumented; the older/unavailable-control fallback may still animate.
+- JVM tests 55/55, debug assembly, and lint passed (0 errors, 547 warnings, 1 hint); independent review found no issues. Logs: `/tmp/grace-status-hide-red-connectedDebugAndroidTest.log`, `/tmp/grace-status-hide-final-focused-connectedDebugAndroidTest.log`, `/tmp/grace-status-hide-final-logcat.log`, and `/tmp/grace-status-hide-final-jvm-assemble-lint.log`.
+- Validation deviation: the worker used `connectedDebugAndroidTest` despite the direct-run preservation constraint. Teardown removed both debug/test emulator packages; parent `pm path` checks confirmed they were absent. Previous emulator app data was not preserved/restored, and further device changes were stopped. This did not touch the physical-device release installation. Caller-owned task/model files and index changes remained untouched.
+- The previous APK from `3c2ae6e` contains the incomplete native-hide fix; corrected release evidence is recorded below when rebuilt.
 
 Notification gestures/previews and status-bar follow-up (working-tree changes from `031fdec3cd1c8597b8419b2307c75eaefe0b644b`):
 - Red-before-green: the home bulk-swipe regression failed before production edits because left swipes dispatched no dismissals. Log: `/tmp/grace-notifications-red.zGxnRP/red-bulk-swipe.log`.
