@@ -7,21 +7,24 @@
 
 | Check | Command |
 | --- | --- |
-| Debug APK | `./gradlew :app:assembleDebug` |
-| JVM tests | `./gradlew :app:testDebugUnitTest` |
-| One JVM test class | `./gradlew :app:testDebugUnitTest --tests 'com.galaxyrio.gracelauncher.ClockSpacingTest'` |
-| Android lint | `./gradlew :app:lintDebug` |
-| Device/emulator tests | `./gradlew :app:connectedDebugAndroidTest` |
+| Debug APK | `bash ./gradlew :app:assembleDebug` |
+| JVM tests | `bash ./gradlew :app:testDebugUnitTest` |
+| One JVM test class | `bash ./gradlew :app:testDebugUnitTest --tests 'com.galaxyrio.gracelauncher.ClockSpacingTest'` |
+| Android lint | `bash ./gradlew :app:lintDebug` |
+| Device/emulator tests | `bash ./gradlew :app:connectedDebugAndroidTest` |
 | Bundled font integrity | `python3 third_party/fonts/verify_fonts.py` |
 
 - Filter device tests with `-Pandroid.testInstrumentationRunnerArguments.class=com.galaxyrio.gracelauncher.LauncherFontFallbackTest`; that class requires API 31+.
-- Integration tests can pass with checks skipped: Breezy Weather 6.1+ and its permission must be configured before weather tests; notification tests require notification access. Revoking Breezy permission during instrumentation can kill the test process.
+- Integration tests may skip missing prerequisites: weather integration needs Breezy Weather 6.1+ and its permission; system notification integration needs listener access. Synthetic notification store/UI tests do not need that access. Revoking Breezy permission during instrumentation can kill the test process.
+- `connectedDebugAndroidTest` teardown can remove installed test packages. To preserve an existing emulator installation, use `adb -s SERIAL install -r` for the debug APK and `adb -s SERIAL install -t -r` for the test APK, then run filtered `adb -s SERIAL shell am instrument` directly.
 - Store screenshot tests are opt-in (`storeScreenshots=true`) and change real wallpaper. `scripts/capture-store-screenshots.ps1` is Windows-specific and updates images under `fastlane/metadata/android/`.
 
 ## Task tracking and release signing
 
 - `tasks.md` tracks pending tasks, completed implementation, and validation caveats. Keep it updated; distinguish implemented changes from verified behavior.
 - The local release signing key and password file are saved under `~/.local/share/grace-launcher/signing/`. Back up both securely, keep them outside version control, and reuse the same key for compatible updates.
+- Release builds (`bash ./gradlew :app:assembleRelease`) are unsigned; there is no release `signingConfig`. Apply 16KB alignment before signing with the existing key, then verify the signature/certificate, alignment, package/version, and SHA-256. Never log signing passwords.
+- Record the built source commit and artifact evidence in `tasks.md`; later documentation-only commits do not change the APK's source or require a rebuild.
 
 ## Wiring and persistence
 
@@ -33,6 +36,9 @@ Kotlin sources below are relative to `app/src/main/java/com/galaxyrio/gracelaunc
 - Database changes need a version bump and a registered migration in `data/LauncherDatabase.kt`; there is no destructive fallback. Room/KSP exports **tracked** schemas to `app/schemas/`—include the generated schema with database changes.
 - Folder members live in `app_popups` under `folder:<id>`, not the removed `folder_apps` table. Membership edits must preserve embedded widgets and their positions.
 - Private Space has separate system-unlocked and launcher-visible states. Discovery needs API 35+ and default-HOME status. With lock-on-exit enabled, defer system locking until return from a launched private app; immediate locking stops it (`platform/PrivateSpaceController.kt`).
+- `data/notifications/AppNotificationStore.kt` separates notifications by `(packageName, userSerial)`. Preserve live profile eligibility/authentication checks, original PendingIntents, and revision-guarded actions. Personal unlock cannot satisfy work-profile reply authentication.
+- `LauncherAppRow` must receive the complete eligible notification list and preserve individual body lines. Suppress only redundant inline sender headings; keep popup notification data and actions unchanged.
+- Home uses `data/ScheduleEvent.kt`'s `visibleScheduleEvents` rolling 24-elapsed-hour window; the date popup spans 14 dates. Empty agenda must not change the preference or suppress enabled battery/weather information (`ui/home/HomeScreen.kt`).
 
 ## Editing conventions
 

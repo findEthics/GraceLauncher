@@ -38,7 +38,8 @@ only the "<contact-name>: <message>" should be displayed (Me: t31 in this case)
 - [x] Remove the unused `LauncherSymbol.Category` entry, drawable, and provenance row.
 - [x] Remove the identity `LauncherPanelTheme` wrapper and compose its two callers directly.
 - [x] Remove the root Gradle file's redundant `apply false` plugin aliases.
-- [x] Build a new signed release APK from reviewed inline-preview and cleanup source.
+- [ ] Add a left swipe gesture on home screen apps along side the existing right swipe (that expands the shortcut popup or notification preview). This should dismiss all the notifications for that app (similar to the left swipe in the popu up preview)
+
 
 ## Validation and release status
 
