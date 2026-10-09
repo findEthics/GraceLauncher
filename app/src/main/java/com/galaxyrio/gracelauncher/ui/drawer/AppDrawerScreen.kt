@@ -156,7 +156,7 @@ fun AppDrawerScreen(
                         onSwipeRight = { onAppShortcuts(item.app, it) },
                         gestures = rowGestures,
                         highlighted = highlightedAppKey == item.app.key,
-                        notification = notificationsFor(item.app).firstOrNull(),
+                        notifications = notificationsFor(item.app),
                     )
                     is DrawerItem.Folder -> FolderRow(
                         folder = item.folder,

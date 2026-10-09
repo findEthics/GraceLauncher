@@ -157,7 +157,7 @@ fun LauncherAppRow(
     onSwipeRight: (Rect) -> Unit = {},
     gestures: AppRowGestures = AppRowGestures(),
     highlighted: Boolean = false,
-    notification: AppNotification? = null,
+    notifications: List<AppNotification> = emptyList(),
     showLabel: Boolean = true,
 ) {
     LauncherRow(
@@ -173,7 +173,7 @@ fun LauncherAppRow(
         detailsDescription = stringResource(R.string.app_actions),
         modifier = modifier,
         highlighted = highlighted,
-        notification = notification?.takeIf {
+        notifications = notifications.filter {
             app.shortcut == null && !app.isPrivateSpace &&
                 (app.isWorkProfile || app.user == null && app.userSerial == null) &&
                 it.packageName == app.packageName && it.userSerial == app.userSerial
@@ -231,7 +231,7 @@ private fun LauncherRow(
     detailsDescription: String,
     modifier: Modifier,
     highlighted: Boolean,
-    notification: AppNotification? = null,
+    notifications: List<AppNotification> = emptyList(),
     showLabel: Boolean = true,
     trailing: (@Composable () -> Unit)? = null,
     icon: @Composable (Modifier) -> Unit,
@@ -309,7 +309,7 @@ private fun LauncherRow(
         Spacer(Modifier.width(LauncherLayout.IconLabelGap))
         Column(Modifier.weight(1f)) {
             if (showLabel) Text(
-                text = label + (notification?.let { " · ${notificationAge(it.postedAt)}" } ?: ""),
+                text = label + (notifications.firstOrNull()?.let { " · ${notificationAge(it.postedAt)}" } ?: ""),
                 modifier = Modifier.testTag("$rowKey:label"),
                 style = MaterialTheme.typography.bodyLarge.merge(
                     TextStyle(fontWeight = FontWeight.Normal, letterSpacing = 0.2.sp, shadow = appearance.textShadow),
@@ -318,17 +318,25 @@ private fun LauncherRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (notification != null) {
+            if (notifications.isNotEmpty()) {
                 if (showLabel) Spacer(Modifier.height(2.dp))
-                listOf(notification.title, notification.text.replace('\n', ' ')).filter { it.isNotBlank() }.forEach { line ->
-                    Text(line, color = appearance.text.copy(alpha = 0.88f),
-                        style = MaterialTheme.typography.bodyMedium.copy(shadow = appearance.textShadow),
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                notifications.forEach { notification ->
+                    val firstBodyLine = notification.text.lineSequence().firstOrNull { it.isNotBlank() }
+                    if (notification.title.isNotBlank() && firstBodyLine?.startsWith("${notification.title}:") != true) {
+                        Text(notification.title, color = appearance.text.copy(alpha = 0.88f),
+                            style = MaterialTheme.typography.bodyMedium.copy(shadow = appearance.textShadow),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    notification.text.lineSequence().filter { it.isNotBlank() }.forEach { line ->
+                        Text(line, color = appearance.text.copy(alpha = 0.88f),
+                            style = MaterialTheme.typography.bodyMedium.copy(shadow = appearance.textShadow),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
         }
         trailing?.invoke()
-        if (notification != null) {
+        if (notifications.isNotEmpty()) {
             IconButton(
                 onClick = { onPrepare(); onOpen(iconBounds) },
                 enabled = inputEnabled,

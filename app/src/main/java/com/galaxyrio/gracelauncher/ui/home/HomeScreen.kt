@@ -239,7 +239,7 @@ fun HomeScreen(
                 onSwipeRight = { onAppShortcuts(app, it) },
                 gestures = rowGestures,
                 highlighted = highlightedAppKey == app.key,
-                notification = uiState.notificationsFor(app).firstOrNull(),
+                notifications = uiState.notificationsFor(app),
                 showLabel = !uiState.settings.hideFavoriteNames,
             )
         }

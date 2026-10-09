@@ -89,6 +89,17 @@ class AppNotificationUiTest {
         SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(expected))
     )
 
+    private fun previewTextBounds(text: String, ancestorTag: String) = compose.onAllNodes(
+        hasText(text, substring = true) and hasAnyAncestor(hasTestTag(ancestorTag)),
+        useUnmergedTree = true,
+    ).fetchSemanticsNodes().also { assertTrue("Missing '$text' under $ancestorTag", it.isNotEmpty()) }
+        .minBy { it.boundsInRoot.height }.boundsInRoot
+
+    private fun assertPreviewTextVisible(text: String, ancestorTag: String) {
+        val bounds = previewTextBounds(text, ancestorTag)
+        assertTrue("'$text' under $ancestorTag has empty bounds: $bounds", bounds.width > 0 && bounds.height > 0)
+    }
+
     @Test fun homePreviewArrowOpensNotificationAboveShortcutsAndLeftSwipeClearsOnlyIt() {
         show()
         compose.onNode(hasText("Two new messages") and hasAnyAncestor(hasTestTag("home_content")), useUnmergedTree = true).assertIsDisplayed()
@@ -129,12 +140,105 @@ class AppNotificationUiTest {
         compose.runOnIdle { assertTrue(opened.isEmpty()); assertTrue(dismissed.isEmpty()) }
     }
 
+    @Test fun homeMessagingPreviewOmitsRedundantSenderTitle() {
+        notifications = listOf(message.copy(key = "me-message", title = "Me", text = "Me: t31"))
+        show()
+
+        compose.onNode(
+            hasText("Me") and hasAnyAncestor(hasTestTag("home_content")), useUnmergedTree = true,
+        ).assertDoesNotExist()
+        assertPreviewTextVisible("Me: t31", "home_content")
+    }
+
+    @Test fun homeMessagingPreviewRendersBodyLinesSeparately() {
+        notifications = listOf(message.copy(key = "split-messages", title = "Today", text = "Me: t31\nMe: t32"))
+        show()
+
+        val firstLine = previewTextBounds("Me: t31", "home_content")
+        val secondLine = previewTextBounds("Me: t32", "home_content")
+        assertTrue(firstLine.bottom <= secondLine.top)
+        compose.onNodeWithText("Me: t31 Me: t32", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test fun homePreviewShowsEveryContactNotificationAndPopupKeepsOriginalItems() {
+        val newestAt = System.currentTimeMillis() - 2 * 60 * 60_000L - 10 * 60_000L
+        val newest = message.copy(key = "poulami", title = "Poulami", text = "Poulami: t32", postedAt = newestAt, revision = 2)
+        val older = message.copy(key = "me", title = "Me", text = "Me: t31", postedAt = newestAt - 2 * 60 * 60_000L, revision = 1)
+        notifications = listOf(newest, older)
+        show()
+
+        val newestLine = previewTextBounds(newest.text, "home_content")
+        val olderLine = previewTextBounds(older.text, "home_content")
+        assertTrue(newestLine.top < olderLine.top)
+        compose.onNode(
+            hasTestTag("app:${app.key}:label") and hasAnyAncestor(hasTestTag("home_content")),
+            useUnmergedTree = true,
+        ).assertTextEquals("${app.label} · ${context.getString(R.string.notification_hours, 2)}")
+
+        compose.onNodeWithTag("notification_arrow:app:${app.key}").performClick()
+        for (notification in listOf(newest, older)) {
+            val itemTag = "notification:${notification.key}"
+            compose.onNodeWithTag(itemTag).assertIsDisplayed()
+            assertPreviewTextVisible(notification.title, itemTag)
+            assertPreviewTextVisible(notification.text, itemTag)
+        }
+        compose.runOnIdle { assertEquals(listOf(newest, older), notifications) }
+    }
+
+    @Test fun workDrawerPreviewShowsEveryProfileNotification() {
+        val newestAt = System.currentTimeMillis() - 2 * 60 * 60_000L - 10 * 60_000L
+        val newest = message.copy(
+            key = "work-poulami", title = "Poulami", text = "Poulami: t32", postedAt = newestAt,
+            revision = 2, userSerial = workApp.userSerial,
+        )
+        val older = message.copy(
+            key = "work-me", title = "Me", text = "Me: t31", postedAt = newestAt - 2 * 60 * 60_000L,
+            revision = 1, userSerial = workApp.userSerial,
+        )
+        notifications = listOf(newest, older)
+        show(drawer = true, targetApp = workApp)
+
+        val newestLine = previewTextBounds(newest.text, "app_drawer")
+        val olderLine = previewTextBounds(older.text, "app_drawer")
+        assertTrue(newestLine.top < olderLine.top)
+        compose.onNode(
+            hasTestTag("app:${workApp.key}:label") and hasAnyAncestor(hasTestTag("app_drawer")),
+            useUnmergedTree = true,
+        ).assertTextEquals("${workApp.label} · ${context.getString(R.string.notification_hours, 2)}")
+
+        compose.onNode(
+            hasTestTag("notification_arrow:app:${workApp.key}") and hasAnyAncestor(hasTestTag("app_drawer")),
+        ).assertIsDisplayed().performClick()
+        for (notification in listOf(newest, older)) {
+            val itemTag = "notification:${notification.key}"
+            compose.onNodeWithTag(itemTag).assertIsDisplayed()
+            assertPreviewTextVisible(notification.title, itemTag)
+            assertPreviewTextVisible(notification.text, itemTag)
+        }
+        compose.runOnIdle { assertEquals(listOf(newest, older), notifications) }
+    }
+
+    @Test fun previewKeepsDistinctTitlesTitleOnlyAndBlankTitleBodyFallback() {
+        val distinctTitle = message.copy(title = "Group summary", text = "Group message")
+        val titleOnly = message.copy(key = "title-only", title = "Title only", text = " ")
+        val bodyOnly = message.copy(key = "body-only", title = "", text = "Body fallback")
+        notifications = listOf(distinctTitle)
+        show()
+
+        assertPreviewTextVisible(distinctTitle.title, "home_content")
+        assertPreviewTextVisible(distinctTitle.text, "home_content")
+        compose.runOnIdle { notifications = listOf(titleOnly) }
+        assertPreviewTextVisible(titleOnly.title, "home_content")
+        compose.runOnIdle { notifications = listOf(bodyOnly) }
+        assertPreviewTextVisible(bodyOnly.text, "home_content")
+    }
+
     @Test fun rowsStillHidePrivateShortcutUnknownAndMismatchedProfileNotifications() {
         var rowApp by mutableStateOf(workApp.copy(isPrivateSpace = true))
-        var rowNotification by mutableStateOf(message.copy(userSerial = rowApp.userSerial))
+        var rowNotifications by mutableStateOf(listOf(message.copy(userSerial = rowApp.userSerial)))
         compose.setContent {
             GraceLauncherTheme(dynamicColor = false) {
-                LauncherAppRow(rowApp, onClick = {}, onLongClick = {}, notification = rowNotification)
+                LauncherAppRow(rowApp, onClick = {}, onLongClick = {}, notifications = rowNotifications)
             }
         }
         val blocked = listOf(
@@ -147,11 +251,36 @@ class AppNotificationUiTest {
         for ((blockedApp, serial) in blocked) {
             compose.runOnIdle {
                 rowApp = blockedApp
-                rowNotification = message.copy(userSerial = serial)
+                rowNotifications = listOf(message.copy(userSerial = serial))
             }
             compose.onNodeWithText(message.title, useUnmergedTree = true).assertDoesNotExist()
             compose.onNodeWithTag("notification_arrow:app:${blockedApp.key}").assertDoesNotExist()
         }
+
+        val newestAt = System.currentTimeMillis() - 2 * 60 * 60_000L - 10 * 60_000L
+        val wrongPackage = message.copy(
+            key = "wrong-package", packageName = "fixture.foreign", title = "Wrong package",
+            text = "Wrong package body", postedAt = System.currentTimeMillis(), userSerial = workApp.userSerial,
+        )
+        val wrongProfile = message.copy(
+            key = "wrong-profile", title = "Wrong profile", text = "Wrong profile body",
+            postedAt = System.currentTimeMillis(), userSerial = 88L,
+        )
+        val eligible = message.copy(
+            key = "eligible-work", title = "Eligible sender", text = "Eligible body",
+            postedAt = newestAt, userSerial = workApp.userSerial,
+        )
+        compose.runOnIdle {
+            rowApp = workApp
+            rowNotifications = listOf(wrongPackage, wrongProfile, eligible)
+        }
+        assertPreviewTextVisible(eligible.text, "app:${workApp.key}")
+        compose.onNodeWithText(wrongPackage.title, useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText(wrongProfile.title, useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("notification_arrow:app:${workApp.key}").assertIsDisplayed()
+        compose.onNodeWithTag("app:${workApp.key}:label", useUnmergedTree = true).assertTextEquals(
+            "${workApp.label} · ${context.getString(R.string.notification_hours, 2)}",
+        )
     }
 
     @Test fun drawerRightSwipeOpensSamePanelAndRightDismissKeepsOtherMessages() {
