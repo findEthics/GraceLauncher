@@ -316,7 +316,7 @@ internal fun HomeClockHeader(
     calendarAboveClock: Boolean = false,
 ) {
     val appearance = LocalLauncherAppearance.current
-    val battery = if (showCalendar && showBattery) rememberBatteryPercent() else null
+    val battery = if (showBattery) rememberBatteryPercent() else null
     val context = LocalContext.current
     val locale = LocalConfiguration.current.locales[0]
     val clockText = formatHomeClock(now, DateFormat.is24HourFormat(context), locale)
@@ -324,6 +324,7 @@ internal fun HomeClockHeader(
     val weekday = SimpleDateFormat("EEE", locale).format(Date.from(now))
     val datePattern = DateFormat.getBestDateTimePattern(locale, if (week) "MMMd" else "MMMEd")
     val dateText = SimpleDateFormat(datePattern, locale).format(Date.from(now))
+    val informationText = if (showCalendar) dateText + (battery?.let { "  $it%" } ?: "") else battery?.let { "$it%" }
     val dateDescription = stringResource(if (weather != null) R.string.weather_agenda_action else R.string.date_calendar_action, dateText)
     val clockDescription = stringResource(R.string.clock_action, clockText)
 
@@ -346,7 +347,7 @@ internal fun HomeClockHeader(
     }
     val calendarContent: @Composable () -> Unit = {
         val shape = LauncherLayout.RowShape
-        if (showCalendar || weather?.temperature != null) Surface(
+        if (informationText != null || weather?.temperature != null) Surface(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag(dateTag)
@@ -383,16 +384,17 @@ internal fun HomeClockHeader(
                         )
                         Text(" · ", modifier = Modifier.alignByBaseline(), color = appearance.text, style = dateStyle)
                     }
-                    if (showCalendar) Text(
-                        text = dateText + (battery?.let { "  $it%" } ?: ""),
-                        modifier = Modifier.weight(1f, fill = false).alignByBaseline().testTag("${dateTag}_text"),
+                    if (informationText != null) Text(
+                        text = informationText,
+                        modifier = Modifier.weight(1f, fill = false).alignByBaseline()
+                            .testTag(if (showCalendar) "${dateTag}_text" else "${dateTag}_battery_text"),
                         color = appearance.text,
                         style = dateStyle,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (weather?.temperature != null) {
-                        if (showCalendar) Spacer(Modifier.width(10.dp))
+                        if (informationText != null) Spacer(Modifier.width(10.dp))
                         HomeWeather(weather, appearance.text, dateStyle, Modifier.alignByBaseline())
                     }
                 }
