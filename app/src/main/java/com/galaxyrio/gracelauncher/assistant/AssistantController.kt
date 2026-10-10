@@ -34,6 +34,7 @@ class AssistantController(private val context: Context, private val scope: Corou
     private var job: Job? = null
     private var generation = 0
     private var engine: Engine? = null
+    private var usingGpu = false
     private var loaded: AssistantModel? = null
     @Volatile private var conversation: Conversation? = null
     private val engineLock = Mutex()
@@ -96,7 +97,11 @@ class AssistantController(private val context: Context, private val scope: Corou
                     if (id != generation) return
                     listening = false; busy = false
                     recognizer?.destroy(); recognizer = null
-                    status = "Offline speech failed ($error). Install an on-device language pack; no cloud fallback."
+                    // 12 = LANGUAGE_UNAVAILABLE, 13 = LANGUAGE_NOT_SUPPORTED → the pack is missing; offer the settings deep-link.
+                    val langMissing = error == 12 || error == 13
+                    needsSpeechSetup = langMissing
+                    status = if (langMissing) "No on-device language pack installed. No cloud fallback."
+                             else "Offline speech failed ($error). No cloud fallback."
                 }
                 override fun onResults(results: Bundle?) {
                     if (id != generation) return
@@ -149,37 +154,48 @@ class AssistantController(private val context: Context, private val scope: Corou
         require(text.isNotBlank() && text.length <= 8000)
         require(files.ready(model)) { "Verified model is missing" }
         withContext(Dispatchers.IO) {
-            if (loaded != model) {
-                ExperimentalFlags.convertCamelToSnakeCaseInToolDescription = false
-                engine?.close(); engine = null; loaded = null
-                engine = startEngine(model); loaded = model
-            }
-            val current = engine!!.createConversation(ConversationConfig(
-                tools = listOf(tool(MobileActionTools { })), automaticToolCalling = false,
-                maxOutputToken = 256,
-            ))
-            conversation = current
             try {
-                var calls: List<ToolCall> = emptyList()
-                current.sendMessageAsync("Current local date and time: ${ZonedDateTime.now()}. User request: $text").collect { message ->
-                    if (message.toolCalls.isNotEmpty()) calls = calls + message.toolCalls
+                if (loaded != model) {
+                    ExperimentalFlags.convertCamelToSnakeCaseInToolDescription = false
+                    engine?.close(); engine = null; loaded = null
+                    engine = startEngine(model, gpu = model == AssistantModel.Gemma4); loaded = model
                 }
-                ensureActive()
-                require(calls.size == 1) { "Expected exactly one action" }
-                MobileAction.fromToolCall(calls.single().name, calls.single().arguments).also { MobileActionExecutor.validate(it) }
-            } finally { conversation = null; current.close() }
+                runInference(text)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Throwable) {
+                // GPU may fail at init (missing OpenCL / delegate) or during inference. Fall back to CPU once.
+                if (usingGpu) {
+                    engine?.close(); engine = null; loaded = null
+                    engine = startEngine(model, gpu = false); loaded = model
+                    runInference(text)
+                } else throw e
+            }
         }
     }
-    // ponytail: Gemma 4 runs on GPU (smooth); the 270M model stays CPU. One-time CPU fallback if GPU init fails.
-    private fun startEngine(model: AssistantModel): Engine {
-        val backends = if (model == AssistantModel.Gemma4) listOf(Backend.GPU(), Backend.CPU()) else listOf(Backend.CPU())
-        var last: Throwable? = null
-        for (backend in backends) {
-            val created = Engine(EngineConfig(modelPath = files.file(model).absolutePath, backend = backend, maxNumTokens = 1024, cacheDir = context.noBackupFilesDir.absolutePath))
-            try { created.initialize(); return created }
-            catch (e: Throwable) { runCatching { created.close() }; last = e }
-        }
-        throw last ?: IllegalStateException("No backend available")
+    @OptIn(ExperimentalApi::class)
+    private suspend fun runInference(text: String): MobileAction {
+        val current = engine!!.createConversation(ConversationConfig(
+            tools = listOf(tool(MobileActionTools { })), automaticToolCalling = false,
+            maxOutputToken = 256,
+        ))
+        conversation = current
+        try {
+            var calls: List<ToolCall> = emptyList()
+            current.sendMessageAsync("Current local date and time: ${ZonedDateTime.now()}. User request: $text").collect { message ->
+                if (message.toolCalls.isNotEmpty()) calls = calls + message.toolCalls
+            }
+            kotlin.coroutines.coroutineContext.ensureActive()
+            require(calls.size == 1) { "Expected exactly one action" }
+            return MobileAction.fromToolCall(calls.single().name, calls.single().arguments).also { MobileActionExecutor.validate(it) }
+        } finally { conversation = null; current.close() }
+    }
+    // ponytail: Gemma 4 prefers GPU (smooth); the 270M model stays CPU. GPU failures surface at inference, so caller retries on CPU.
+    private fun startEngine(model: AssistantModel, gpu: Boolean): Engine {
+        usingGpu = gpu
+        val backend = if (gpu) Backend.GPU() else Backend.CPU()
+        val created = Engine(EngineConfig(modelPath = files.file(model).absolutePath, backend = backend, maxNumTokens = 1024, cacheDir = context.noBackupFilesDir.absolutePath))
+        try { created.initialize() } catch (e: Throwable) { runCatching { created.close() }; throw e }
+        return created
     }
     // Opens the OS voice-input settings so the user can install an offline language pack; never downloads anything itself.
     fun openSpeechSettings() {
