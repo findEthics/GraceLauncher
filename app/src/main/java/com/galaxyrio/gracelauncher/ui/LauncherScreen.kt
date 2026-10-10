@@ -878,6 +878,11 @@ internal fun LauncherScreen(
             onScrubFinished = finishScrubbing,
             autoHide = uiState.settings.hideAlphabet && !drawerOpen,
         )
+        if (!drawerOpen && !editingHome && !fullScreen && overlay == null && backProgress.value == 0f) {
+            com.galaxyrio.gracelauncher.assistant.AssistantHome(
+                Modifier.align(Alignment.BottomEnd).padding(end = LauncherLayout.End, bottom = 22.dp + bottomInset),
+            )
+        }
         if (!drawerOpen && editingHome) {
             val doneDescription = stringResource(R.string.done)
             Surface(

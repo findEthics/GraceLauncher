@@ -543,4 +543,17 @@
         <item quantity="one">%d widget</item>
         <item quantity="other">%d widgets</item>
     </plurals>
+    <!-- Offline assistant -->
+    <string name="assistant_title">Offline assistant</string>
+    <string name="assistant_privacy">Speech and inference stay on this device. Downloads require internet; there is no cloud fallback. An installed on-device speech language pack is required.</string>
+    <string name="assistant_enable">Enable hold-to-talk on Home</string>
+    <string name="assistant_hold">Hold to speak; release to process. Accessibility: activate to start or stop.</string>
+    <string name="assistant_cancel">Cancel</string>
+    <string name="assistant_confirm">Review action</string>
+    <string name="assistant_continue">Continue</string>
+    <string name="assistant_ready">Verified and ready</string>
+    <string name="assistant_token">Hugging Face token (download only; accept model license first)</string>
+    <string name="assistant_download">Download model</string>
+    <string name="assistant_delete">Delete model</string>
+    <string name="assistant_actions">Supported: flashlight, contact editor, email draft, maps, Wi-Fi settings and calendar editor. Review before execution. External apps may use internet.</string>
 </resources>

@@ -1,5 +1,11 @@
 # Tasks
 
+- [x] Build/sign offline-assistant release `1.2.0` (code `8`). APK: `release/GraceLauncher-1.2.0-release.apk`; SHA-256 `1f9b5c5c84768a15ae457b7f60b015f1a15275fdfa45318a07375d411dcca4f2`.
+  - 58 JVM tests passed; lint 0 errors (495 warnings); assistant UI 2/2, validated actions plus both offline models 8/8, live public Gemma download/integrity/cancellation 1/1 passed. Offline rerun log `/tmp/grace-final-offline-tests.txt`.
+  - Signed release installed and cold-launched on API35 emulator; installed code/name read back, crash buffer empty. Signing certificate matches authorized new key. Release is non-debuggable, 58,722,644 bytes.
+  - Voice uses native on-device recognition only and fails closed when unavailable; physical Titan speech/language-pack support and real hold-to-talk audio remain unverified. No cloud inference/speech fallback. Existing unrelated launcher integration failures recorded below were not fixed or claimed passing.
+  - This supersedes the historical 1.1.4 release records below and the key/version-only 1.1.5 release. New key cannot update an app signed with the older certificate.
+
 - [x] Make work-profile apps available, with profile-aware identities, launches, and work badges.
 - [x] Add reply functionality to the home-screen notification viewer.
   - Use the notification's supported text-reply action.

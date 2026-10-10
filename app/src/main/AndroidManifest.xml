@@ -3,6 +3,11 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <!-- Requested only when the user explicitly enables local contact search. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- Hidden profiles are accessible only while Grace holds the default HOME role. -->
@@ -19,6 +24,7 @@
         tools:ignore="QueryAllPackagesPermission" />
 
     <queries>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
         <package android:name="org.breezyweather" />
         <intent>
             <action android:name="android.intent.action.MAIN" />

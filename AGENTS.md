@@ -21,6 +21,11 @@
 
 ## Task tracking and release signing
 
+- Offline assistant implementation authorized: `1.2.0` / versionCode `8`; plans remain under `.hermes/plans/`. Uses LiteRT-LM 0.18.0 CPU, manual reviewed/validated tool calls, verified pinned downloads in `noBackupFilesDir`, and native on-device speech only (API31+). No cloud fallback; devices/languages without an installed on-device recognizer cannot use voice.
+- LiteRT defaults camelCase tool schemas to snake_case; explicitly disable that flag before engine creation to preserve MobileActions model signatures. Offline instrumentation must assert readiness (not Assume/skip); seeded filenames are `<enum name>-<catalog filename>` plus `.sha256` matching the verified digest. UI tests run before seeding if testing download-token visibility.
+- New signing key: alias `grace-launcher`, RSA 3072; certificate SHA-256 `7c928de3824f4c6d91056d5e5615c5cb5414fece82643c0930c0ca600f583a0b`. Key and password backups were read back and verified in Bitwarden (`GRACE_SIGNING_KEYSTORE_BASE64`, `GRACE_SIGNING_STORE_PASSWORD`, `GRACE_SIGNING_KEY_PASSWORD`). Existing differently signed installs cannot be updated with this key.
+- Store/key passwords are equal: use `apksigner --ks-pass file:...` and omit `--key-pass`. Reusing the same password file for both options consumes its only line and fails with EOF.
+
 - `tasks.md` tracks pending tasks, completed implementation, and validation caveats. Keep it updated; distinguish implemented changes from verified behavior.
 - The local release signing key and password file are saved under `~/.local/share/grace-launcher/signing/`. Back up both securely, keep them outside version control, and reuse the same key for compatible updates.
 - Release builds (`bash ./gradlew :app:assembleRelease`) are unsigned; there is no release `signingConfig`. Apply 16KB alignment before signing with the existing key, then verify the signature/certificate, alignment, package/version, and SHA-256. Never log signing passwords.

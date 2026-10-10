@@ -206,17 +206,7 @@ fun LauncherSettingsScreen(
                     )
                     SettingsPage.Calendar -> CalendarSettings(uiState, actions, back)
                     SettingsPage.Advanced -> SettingsScaffold(stringResource(R.string.settings_advanced), "settings_advanced", back) { padding ->
-                        Box(
-                            Modifier.fillMaxSize().padding(padding).padding(24.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                stringResource(R.string.settings_coming_soon),
-                                Modifier.testTag("settings_advanced_coming_soon"),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        com.galaxyrio.gracelauncher.assistant.AssistantSettings(Modifier.fillMaxSize().padding(padding))
                     }
                     SettingsPage.About -> AboutSettings(back, navigate)
                     SettingsPage.HiddenApps -> HiddenAppsSettings(uiState, actions, back)
