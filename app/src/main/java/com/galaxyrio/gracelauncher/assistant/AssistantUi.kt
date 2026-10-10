@@ -19,6 +19,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -92,6 +93,7 @@ fun AssistantHome(modifier: Modifier = Modifier) {
 fun AssistantSettings(modifier: Modifier = Modifier) {
     val assistant = rememberAssistant()
     var token by remember { mutableStateOf("") }
+    var showToken by remember { mutableStateOf(false) }
     Column(modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(stringResource(R.string.assistant_title), style = MaterialTheme.typography.titleLarge)
         Text(stringResource(R.string.assistant_privacy), style = MaterialTheme.typography.bodyMedium)
@@ -112,7 +114,8 @@ fun AssistantSettings(modifier: Modifier = Modifier) {
                 if (model.tokenRequired) OutlinedTextField(
                     value = token, onValueChange = { token = it },
                     label = { Text(stringResource(R.string.assistant_token)) },
-                    visualTransformation = PasswordVisualTransformation(), singleLine = true,
+                    visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(), singleLine = true,
+                    trailingIcon = { TextButton(onClick = { showToken = !showToken }) { Text(stringResource(if (showToken) R.string.assistant_token_hide else R.string.assistant_token_show)) } },
                     modifier = Modifier.fillMaxWidth().testTag("assistant_token"),
                 )
                 Button(enabled = !assistant.busy && (!model.tokenRequired || token.isNotBlank()), onClick = {

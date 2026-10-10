@@ -553,6 +553,8 @@
     <string name="assistant_continue">Continue</string>
     <string name="assistant_ready">Verified and ready</string>
     <string name="assistant_token">Hugging Face token (download only; accept model license first)</string>
+    <string name="assistant_token_show">Show</string>
+    <string name="assistant_token_hide">Hide</string>
     <string name="assistant_download">Download model</string>
     <string name="assistant_delete">Delete model</string>
     <string name="assistant_actions">Supported: flashlight, contact editor, email draft, maps, Wi-Fi settings and calendar editor. Review before execution. External apps may use internet.</string>

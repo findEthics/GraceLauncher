@@ -10,6 +10,7 @@ import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.security.MessageDigest
 import java.util.Locale
 import javax.net.ssl.HttpsURLConnection
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -60,14 +61,15 @@ class ModelFiles(context: Context) {
                 val bearer = token?.takeIf { it.isNotBlank() }
                 require(!model.tokenRequired || bearer != null) { "A Hugging Face access token is required" }
                 require(bearer == null || bearer.all { it.code in 33..126 }) { "Invalid access token" }
-                if (!storage.isDirectory && !storage.mkdirs()) throw IOException("Cannot create model storage")
+                if (!storage.isDirectory && !storage.mkdirs()) throw SafeDownloadException("Cannot create model storage")
                 val target = file(model)
                 val partial = File(storage, "${target.name}.part")
                 val hashPartial = File(storage, "${target.name}.sha256.part")
-                remove(partial)
                 remove(hashPartial)
-                if (storage.usableSpace < model.bytes + 64L * 1024 * 1024) {
-                    throw IOException("Not enough storage for model and 64 MiB reserve")
+                // Keep a partial file from an interrupted attempt so the download can resume.
+                if (partial.length() > model.bytes) remove(partial)
+                if (storage.usableSpace < model.bytes - partial.length() + 64L * 1024 * 1024) {
+                    throw SafeDownloadException("Not enough storage for model and 64 MiB reserve")
                 }
                 var published = false
                 try {
@@ -75,6 +77,7 @@ class ModelFiles(context: Context) {
                     var sendBearer = bearer != null
                     var redirects = 0
                     var lastProgress = 0L
+                    var attempts = 0
                     val coroutine = currentCoroutineContext()
                     while (true) {
                         coroutine.ensureActive()
@@ -84,29 +87,38 @@ class ModelFiles(context: Context) {
                             connection.connectTimeout = 15_000
                             connection.readTimeout = 15_000
                             connection.setRequestProperty("Accept-Encoding", "identity")
+                            var have = if (partial.isFile) partial.length() else 0L
+                            if (have > 0) connection.setRequestProperty("Range", "bytes=$have-")
                             if (sendBearer) connection.setRequestProperty("Authorization", "Bearer $bearer")
                             val status = connection.responseCode
                             if (status in listOf(301, 302, 303, 307, 308)) {
-                                if (++redirects > 8) throw IOException("Too many model redirects")
+                                if (++redirects > 8) throw SafeDownloadException("Too many model redirects")
                                 val next = validatedRedirect(url, connection.getHeaderField("Location")
-                                    ?: throw IOException("Missing model redirect"))
+                                    ?: throw SafeDownloadException("Missing model redirect"))
                                 sendBearer = sendBearer && sameHttpsOrigin(url, next)
                                 url = next
                                 continue
                             }
                             if (status == 401 || status == 403) throw ModelAccessException()
-                            if (status != 200) throw IOException("Model download failed (HTTP $status)")
+                            if (status == 200) have = 0L // server ignored Range: restart from zero
+                            else if (status != 206 || connection.getHeaderField("Content-Range")?.startsWith("bytes $have-") != true) {
+                                throw SafeDownloadException("Model download failed (HTTP $status)")
+                            }
                             val length = connection.contentLengthLong
-                            if (length >= 0 && length != model.bytes) throw IOException("Model size mismatch")
+                            if (length >= 0 && length != model.bytes - have) throw SafeDownloadException("Model size mismatch")
                             val encoding = connection.getHeaderField("Content-Encoding")
                             if (encoding != null && !encoding.equals("identity", ignoreCase = true)) {
-                                throw IOException("Unexpected model encoding")
+                                throw SafeDownloadException("Unexpected model encoding")
                             }
                             val digest = MessageDigest.getInstance("SHA-256")
-                            var bytes = 0L
+                            var bytes = have
+                            if (have > 0) partial.inputStream().use { old ->
+                                val buf = ByteArray(64 * 1024)
+                                while (true) { val n = old.read(buf); if (n < 0) break; digest.update(buf, 0, n) }
+                            }
                             onProgress(bytes)
                             connection.inputStream.use { input ->
-                                FileOutputStream(partial).use { output ->
+                                FileOutputStream(partial, have > 0).use { output ->
                                     val buffer = ByteArray(64 * 1024)
                                     while (true) {
                                         coroutine.ensureActive()
@@ -114,7 +126,7 @@ class ModelFiles(context: Context) {
                                         if (count < 0) break
                                         if (count == 0) continue
                                         bytes += count
-                                        if (bytes > model.bytes) throw IOException("Model size mismatch")
+                                        if (bytes > model.bytes) throw SafeDownloadException("Model size mismatch")
                                         output.write(buffer, 0, count)
                                         digest.update(buffer, 0, count)
                                         val now = android.os.SystemClock.elapsedRealtime()
@@ -139,6 +151,13 @@ class ModelFiles(context: Context) {
                             Files.move(hashPartial.toPath(), sidecar(model).toPath(), ATOMIC_MOVE)
                             published = false
                             break
+                        } catch (e: IOException) {
+                            // Transient network drop: resume from the partial file (max 5 retries).
+                            if (e is SafeDownloadException || e is ModelAccessException || ++attempts > 5) throw e
+                            android.util.Log.w("ModelDl", e.javaClass.name + " retry " + attempts)
+                            url = URL("https://huggingface.co/${model.repository}/resolve/${model.revision}/${model.filename}")
+                            sendBearer = bearer != null; redirects = 0
+                            delay(1_000L * attempts)
                         } finally {
                             connection.disconnect()
                         }
@@ -147,11 +166,14 @@ class ModelFiles(context: Context) {
                     throw e
                 } catch (e: ModelAccessException) {
                     throw e
-                } catch (_: Exception) {
-                    // Never expose signed redirect URLs or request headers through exception text.
-                    throw IOException("Model download failed; check access, integrity, and storage")
+                } catch (e: SafeDownloadException) {
+                    partial.delete() // integrity/size failure: never resume corrupt data
+                    throw e
+                } catch (e: Exception) {
+                    // Class name only: exception text can contain signed redirect URLs.
+                    android.util.Log.w("ModelDl", e.javaClass.name + " " + (e.message ?: "").substringBefore("?"))
+                    throw IOException("Model download failed (${e.javaClass.simpleName}); check network, access and storage")
                 } finally {
-                    partial.delete()
                     hashPartial.delete()
                     if (published) {
                         sidecar(model).delete()
@@ -188,6 +210,8 @@ class ModelFiles(context: Context) {
         private val mutation = Mutex()
     }
 }
+
+private class SafeDownloadException(m: String) : IOException(m)
 
 private class ModelAccessException : IOException("Download requires a valid Hugging Face token and acceptance of the model license")
 
