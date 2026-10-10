@@ -99,6 +99,7 @@
             android:theme="@style/Theme.GraceLauncher.Settings" />
         <activity
             android:name=".SettingsActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:exported="true"
             android:label="@string/grace_settings"
             android:theme="@style/Theme.GraceLauncher.Settings"

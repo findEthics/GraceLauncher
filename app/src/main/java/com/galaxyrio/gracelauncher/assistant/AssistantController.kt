@@ -49,17 +49,19 @@ class AssistantController(private val context: Context, private val scope: Corou
     fun enable(value: Boolean) { prefs.edit().putBoolean("enabled", value).apply() }
     fun select(model: AssistantModel) { cancel(); unload(); selected = model; prefs.edit().putString("model", model.name).apply() }
     fun ready(model: AssistantModel = selected) = files.ready(model)
+    var downloading = false; private set // survives ON_PAUSE: a download must not die when the user leaves to accept the license
     fun download(model: AssistantModel, token: String) {
         if (busy) return
         val id = ++generation
         busy = true
+        downloading = true
         job = scope.launch {
             try {
                 files.download(model, token) { bytes -> scope.launch { if (id == generation) status = "Downloading ${bytes * 100 / model.bytes}%" } }
                 status = "Model verified and ready"
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { status = e.message?.takeIf { !it.contains("http") && !it.contains(token.takeIf { t -> t.isNotBlank() } ?: "\u0000") } ?: "Download failed; check access and storage" }
-            finally { if (id == generation) busy = false }
+            finally { downloading = false; if (id == generation) busy = false }
         }
     }
     fun delete(model: AssistantModel) {

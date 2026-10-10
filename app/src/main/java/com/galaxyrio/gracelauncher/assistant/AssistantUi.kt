@@ -33,7 +33,7 @@ private fun rememberAssistant(): AssistantController {
     val controller = remember(context) { AssistantController(context, scope) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(controller, lifecycle) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE) controller.cancel() }
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE && !controller.downloading) controller.cancel() }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer); controller.close() }
     }
@@ -101,6 +101,7 @@ fun AssistantSettings(modifier: Modifier = Modifier) {
             Text(stringResource(R.string.assistant_enable), Modifier.weight(1f))
             Switch(checked = assistant.enabled, onCheckedChange = { assistant.enable(it) }, modifier = Modifier.testTag("assistant_enable"))
         }
+        Text(assistant.status, Modifier.testTag("assistant_download_status"))
         AssistantModel.entries.forEach { model ->
             HorizontalDivider()
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -125,7 +126,6 @@ fun AssistantSettings(modifier: Modifier = Modifier) {
             if (assistant.ready(model)) TextButton(enabled = !assistant.busy, onClick = { assistant.delete(model) }) { Text(stringResource(R.string.assistant_delete)) }
         }
         if (assistant.busy) { LinearProgressIndicator(Modifier.fillMaxWidth()); TextButton(onClick = { assistant.cancel(); token = "" }) { Text(stringResource(R.string.assistant_cancel)) } }
-        Text(assistant.status, Modifier.testTag("assistant_download_status"))
         Text(stringResource(R.string.assistant_actions), style = MaterialTheme.typography.bodySmall)
     }
 }
