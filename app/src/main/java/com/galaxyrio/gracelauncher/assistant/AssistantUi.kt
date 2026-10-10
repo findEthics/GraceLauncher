@@ -48,7 +48,10 @@ fun AssistantHome(modifier: Modifier = Modifier) {
     val description = stringResource(R.string.assistant_hold)
     Column(modifier, horizontalAlignment = Alignment.End) {
         if (assistant.status.isNotBlank()) Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer) {
-            Text(assistant.status, Modifier.widthIn(max = 250.dp).padding(12.dp).testTag("assistant_status"), style = MaterialTheme.typography.bodySmall)
+            Column(Modifier.widthIn(max = 250.dp).padding(12.dp)) {
+                Text(assistant.status, Modifier.testTag("assistant_status"), style = MaterialTheme.typography.bodySmall)
+                if (assistant.needsSpeechSetup) TextButton(onClick = { assistant.openSpeechSettings() }, modifier = Modifier.testTag("assistant_speech_settings")) { Text(stringResource(R.string.assistant_open_speech_settings)) }
+            }
         }
         Spacer(Modifier.height(8.dp))
         Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {

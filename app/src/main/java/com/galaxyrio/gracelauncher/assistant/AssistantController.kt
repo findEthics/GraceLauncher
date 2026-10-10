@@ -29,6 +29,7 @@ class AssistantController(private val context: Context, private val scope: Corou
     var busy by mutableStateOf(false); private set
     var listening by mutableStateOf(false); private set
     var pendingAction by mutableStateOf<MobileAction?>(null); private set
+    var needsSpeechSetup by mutableStateOf(false); private set
     private var recognizer: SpeechRecognizer? = null
     private var job: Job? = null
     private var generation = 0
@@ -74,8 +75,9 @@ class AssistantController(private val context: Context, private val scope: Corou
         if (!enabled || busy || listening) return false
         if (!ready()) { status = "Download the selected model in Advanced settings"; return false }
         if (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
-            status = "On-device speech recognition is unavailable. No cloud fallback."; return false
+            status = "On-device speech recognition is unavailable. No cloud fallback."; needsSpeechSetup = true; return false
         }
+        needsSpeechSetup = false
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return true
         val id = ++generation
         pendingAction = null
@@ -150,9 +152,7 @@ class AssistantController(private val context: Context, private val scope: Corou
             if (loaded != model) {
                 ExperimentalFlags.convertCamelToSnakeCaseInToolDescription = false
                 engine?.close(); engine = null; loaded = null
-                val created = Engine(EngineConfig(modelPath = files.file(model).absolutePath, backend = Backend.CPU(), maxNumTokens = 1024, cacheDir = context.noBackupFilesDir.absolutePath))
-                try { created.initialize() } catch (e: Throwable) { runCatching { created.close() }; throw e }
-                engine = created; loaded = model
+                engine = startEngine(model); loaded = model
             }
             val current = engine!!.createConversation(ConversationConfig(
                 tools = listOf(tool(MobileActionTools { })), automaticToolCalling = false,
@@ -169,6 +169,24 @@ class AssistantController(private val context: Context, private val scope: Corou
                 MobileAction.fromToolCall(calls.single().name, calls.single().arguments).also { MobileActionExecutor.validate(it) }
             } finally { conversation = null; current.close() }
         }
+    }
+    // ponytail: Gemma 4 runs on GPU (smooth); the 270M model stays CPU. One-time CPU fallback if GPU init fails.
+    private fun startEngine(model: AssistantModel): Engine {
+        val backends = if (model == AssistantModel.Gemma4) listOf(Backend.GPU(), Backend.CPU()) else listOf(Backend.CPU())
+        var last: Throwable? = null
+        for (backend in backends) {
+            val created = Engine(EngineConfig(modelPath = files.file(model).absolutePath, backend = backend, maxNumTokens = 1024, cacheDir = context.noBackupFilesDir.absolutePath))
+            try { created.initialize(); return created }
+            catch (e: Throwable) { runCatching { created.close() }; last = e }
+        }
+        throw last ?: IllegalStateException("No backend available")
+    }
+    // Opens the OS voice-input settings so the user can install an offline language pack; never downloads anything itself.
+    fun openSpeechSettings() {
+        val intent = Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val fallback = Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val target = if (intent.resolveActivity(context.packageManager) != null) intent else fallback
+        runCatching { context.startActivity(target) }
     }
     fun confirm(): Boolean {
         val action = pendingAction ?: return false
