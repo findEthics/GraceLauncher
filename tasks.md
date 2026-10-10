@@ -1,5 +1,14 @@
 # Tasks
 
+## Pending
+
+- [ ] Refine the Home Screen microphone / push-to-talk UI. Details to be provided by the user when the task starts.
+- [ ] Make the model configurable (BYO model via Hugging Face: repo/URL + optional token). Keep downloads pinned/verified, token download-only and never persisted.
+- [ ] Fine-tune the 270M actions model with the supplied data to supplement the existing model; assess feasibility with limited data first.
+  - Data: `docs/finetune/{train,eval}.jsonl`, `generate_dataset.py` (chat format, JSON-command output).
+  - Mismatch to resolve first: that data targets Promptpad's command vocabulary (call/text/timer/alarm/todo/note/grocery/event/torch/camera/none, JSON text output), whereas GraceLauncher's FunctionGemma emits native tool calls (`turnOnFlashlight`, email/maps/wifi/calendar/contact). It must be remapped to the FunctionGemma tool-call format, and may need new tool targets, before it helps.
+  - Training host: MacBook Pro M4 Max reachable via agent (Unsloth/MLX). Constraints: output must stay a LiteRT-LM `.litertlm` bundle for the 270M architecture, so check the conversion path from the fine-tuned checkpoint before investing; keep eval on held-out phrases (e.g. "torch on", "draft email").
+
 - [x] Build/sign offline-assistant release `1.2.0` (code `8`). APK: `release/GraceLauncher-1.2.0-release.apk`; SHA-256 `1f9b5c5c84768a15ae457b7f60b015f1a15275fdfa45318a07375d411dcca4f2`.
   - 58 JVM tests passed; lint 0 errors (495 warnings); assistant UI 2/2, validated actions plus both offline models 8/8, live public Gemma download/integrity/cancellation 1/1 passed. Offline rerun log `/tmp/grace-final-offline-tests.txt`.
   - Signed release installed and cold-launched on API35 emulator; installed code/name read back, crash buffer empty. Signing certificate matches authorized new key. Release is non-debuggable, 58,722,644 bytes.

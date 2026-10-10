@@ -179,6 +179,8 @@ class AssistantController(private val context: Context, private val scope: Corou
         val current = engine!!.createConversation(ConversationConfig(
             tools = listOf(tool(MobileActionTools { })), automaticToolCalling = false,
             maxOutputToken = 256,
+            samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 0), // ponytail: greedy; sampling made "Torch on" flaky
+
         ))
         conversation = current
         try {
