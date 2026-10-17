@@ -7,13 +7,11 @@ import android.content.Intent
 import androidx.test.platform.app.InstrumentationRegistry
 import android.net.MailTo
 import android.net.Uri
-import android.provider.CalendarContract
-import android.provider.ContactsContract
 import android.provider.Settings
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.time.LocalDateTime
-import java.time.ZoneId
 import java.util.TimeZone
+import android.provider.AlarmClock
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -65,11 +63,10 @@ class MobileActionTest {
         rejects { MobileActionExecutor.validate(MobileAction("createContact", fields + ("phoneNumber" to ""))) }
         rejects { MobileActionExecutor.validate(MobileAction("createContact", fields + ("phoneNumber" to "call-me"))) }
         rejects { MobileActionExecutor.validate(MobileAction("createContact", fields + ("email" to "bad"))) }
-        val intent = requireNotNull(MobileActionExecutor.intentFor(MobileAction("createContact", fields)))
-        assertEquals(Intent.ACTION_INSERT, intent.action)
-        assertEquals(ContactsContract.Contacts.CONTENT_TYPE, intent.type)
-        assertEquals("Ada", intent.getStringExtra(ContactsContract.Intents.Insert.NAME))
-        assertEquals(fields["phoneNumber"], intent.getStringExtra(ContactsContract.Intents.Insert.PHONE))
+        // Direct provider save: no editor intent is exposed, and nothing is written here.
+        assertNull(MobileActionExecutor.intentFor(MobileAction("createContact", fields)))
+        assertArrayEquals(arrayOf(android.Manifest.permission.READ_CONTACTS, android.Manifest.permission.WRITE_CONTACTS),
+            MobileActionExecutor.requiredPermissions(MobileAction("createContact", fields)))
     }
 
     @Test fun emailAndMapUrisEncodeDataWithoutInjectingParameters() {
@@ -102,20 +99,49 @@ class MobileActionTest {
                 rejects { MobileActionExecutor.validate(event(it)) }
             }
             val action = event("2026-07-01T10:30:00")
-            val berlin = requireNotNull(MobileActionExecutor.intentFor(action))
-            assertEquals(Intent.ACTION_INSERT, berlin.action)
-            assertEquals(CalendarContract.Events.CONTENT_URI, berlin.data)
-            assertEquals("Meeting", berlin.getStringExtra(CalendarContract.Events.TITLE))
-            assertEquals("Europe/Berlin", berlin.getStringExtra(CalendarContract.Events.EVENT_TIMEZONE))
-            assertEquals(LocalDateTime.parse(action.arguments.getValue("datetime")).atZone(ZoneId.of("Europe/Berlin")).toInstant().toEpochMilli(),
-                berlin.getLongExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, -1))
-            TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
-            val utc = requireNotNull(MobileActionExecutor.intentFor(action))
-            assertEquals("UTC", utc.getStringExtra(CalendarContract.Events.EVENT_TIMEZONE))
-            assertNotEquals(berlin.getLongExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, -1), utc.getLongExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, -1))
+            MobileActionExecutor.validate(action)
+            assertNull(MobileActionExecutor.intentFor(action)) // direct save, no calendar editor
+            assertEquals(2, MobileActionExecutor.requiredPermissions(action).size)
         } finally {
             TimeZone.setDefault(original)
         }
+    }
+
+    @Test fun newToolsValidateRequestAndExposeClockIntentsWithSkipUi() {
+        val now = LocalDateTime.of(2026, 7, 1, 9, 0)
+        val timer = MobileAction("createTimer", mapOf("duration" to "5 minutes", "label" to ""))
+        MobileActionExecutor.validateRequest(timer, "set a timer for 5 minutes", now)
+        rejects { MobileActionExecutor.validateRequest(timer, "", now) }
+        rejects { MobileActionExecutor.validateRequest(timer, "set a timer for 6 minutes", now) }
+        val intent = requireNotNull(MobileActionExecutor.intentFor(timer))
+        assertEquals(AlarmClock.ACTION_SET_TIMER, intent.action)
+        assertEquals(300, intent.getIntExtra(AlarmClock.EXTRA_LENGTH, -1))
+        assertTrue(intent.getBooleanExtra(AlarmClock.EXTRA_SKIP_UI, false))
+        val alarm = MobileAction("createAlarm", mapOf("time" to "22:30", "label" to ""))
+        MobileActionExecutor.validateRequest(alarm, "alarm 10:30pm", now)
+        val alarmIntent = requireNotNull(MobileActionExecutor.intentFor(alarm))
+        assertEquals(AlarmClock.ACTION_SET_ALARM, alarmIntent.action)
+        assertEquals(22, alarmIntent.getIntExtra(AlarmClock.EXTRA_HOUR, -1))
+        assertEquals(30, alarmIntent.getIntExtra(AlarmClock.EXTRA_MINUTES, -1))
+        assertTrue(alarmIntent.getBooleanExtra(AlarmClock.EXTRA_SKIP_UI, false))
+        assertFalse(alarmIntent.hasExtra(AlarmClock.EXTRA_DAYS))
+        var launches = 0
+        val capturingContext = object : ContextWrapper(InstrumentationRegistry.getInstrumentation().targetContext) {
+            override fun startActivity(intent: Intent) {
+                launches++
+                assertEquals(AlarmClock.ACTION_SET_ALARM, intent.action)
+                assertEquals(22, intent.getIntExtra(AlarmClock.EXTRA_HOUR, -1))
+                assertEquals(30, intent.getIntExtra(AlarmClock.EXTRA_MINUTES, -1))
+                assertEquals(Intent.FLAG_ACTIVITY_NEW_TASK, intent.flags)
+            }
+        }
+        assertEquals("Alarm requested from Clock; not confirmed set.",
+            MobileActionExecutor.execute(capturingContext, alarm, "alarm 10:30pm", now))
+        assertEquals(1, launches) // Captured only; never starts Clock or schedules a real alarm.
+        val call = MobileAction("callContact", mapOf("contactName" to "John", "phoneLabel" to ""))
+        rejects { MobileActionExecutor.validateRequest(call, "call John Smith", now) }
+        assertNull(MobileActionExecutor.intentFor(call))
+        assertEquals(3, MobileActionExecutor.requiredPermissions(call).size)
     }
 
     @Test fun executionUsesSafeTaskFlagsAndGenericFailuresWithoutLaunchingApps() {
@@ -124,29 +150,32 @@ class MobileActionTest {
             override fun startActivity(intent: Intent) { launched = intent }
         }
         val action = email()
-        action.execute(context)
+        val request = "send an email to person@example.com"
+        assertTrue(action.execute(context).startsWith("Action not performed")) // empty request fails safely
+        assertNull(launched)
+        action.execute(context, request)
         assertEquals(Intent.FLAG_ACTIVITY_NEW_TASK, requireNotNull(launched).flags)
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             val activity = object : Activity() {
                 override fun startActivity(intent: Intent) { launched = intent }
             }
-            action.execute(activity)
+            action.execute(activity, request)
             assertEquals(0, requireNotNull(launched).flags)
         }
         launched = null
-        MobileAction("unknown", emptyMap()).execute(context)
+        MobileAction("unknown", emptyMap()).execute(context, request)
         assertNull(launched)
         val unavailable = object : ContextWrapper(context) {
             override fun startActivity(intent: Intent) { throw ActivityNotFoundException("private details") }
         }
-        assertEquals("No installed app can open this action.", action.execute(unavailable))
+        assertEquals("No installed app can open this action.", action.execute(unavailable, request))
         val restricted = object : ContextWrapper(context) {
             override fun startActivity(intent: Intent) { throw SecurityException("private details") }
         }
-        assertEquals("Action not performed: permission is missing or access is restricted.", action.execute(restricted))
+        assertEquals("Action not performed: permission is missing or access is restricted.", action.execute(restricted, request))
     }
 
-    @Test fun toolsOnlyQueueAllSevenActions() {
+    @Test fun toolsOnlyQueueAllActions() {
         val queued = mutableListOf<MobileAction>()
         val tools = MobileActionTools { queued.add(it) }
         val results = listOf(
@@ -155,8 +184,9 @@ class MobileActionTest {
             tools.sendEmail("person@example.com", "Subject", "Body"),
             tools.showLocationOnMap("London"), tools.openWifiSettings(),
             tools.createCalendarEvent("2026-07-01T10:00:00", "Meeting"),
+            tools.createTimer("5 minutes", ""), tools.createAlarm("22:30", ""), tools.callContact("Ada Lovelace", ""),
         )
-        assertEquals(listOf("turnOnFlashlight", "turnOffFlashlight", "createContact", "sendEmail", "showLocationOnMap", "openWifiSettings", "createCalendarEvent"), queued.map { it.name })
+        assertEquals(listOf("turnOnFlashlight", "turnOffFlashlight", "createContact", "sendEmail", "showLocationOnMap", "openWifiSettings", "createCalendarEvent", "createTimer", "createAlarm", "callContact"), queued.map { it.name })
         results.forEach { assertEquals(mapOf("result" to "queued"), it) }
         assertTrue(queued[0].needsCamera)
         assertTrue(queued[1].needsCamera)

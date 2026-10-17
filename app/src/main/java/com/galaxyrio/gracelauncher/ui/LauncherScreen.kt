@@ -481,6 +481,7 @@ fun LauncherRoute(
             uiState = uiState,
             widgetEditRequest = widgetEditRequest,
             returnHomeRequests = viewModel.returnHomeRequests,
+            assistant = viewModel.assistant,
             onDateClick = { permissionLauncher.launch(Manifest.permission.READ_CALENDAR) },
             onClockClick = {
                 val key = uiState.settings.clockAppKey
@@ -518,7 +519,9 @@ internal fun LauncherScreen(
     actions: LauncherActions = LauncherActions(),
     initialDrawerOpen: Boolean = false,
     widgetEditRequest: Int = 0,
+    assistant: com.galaxyrio.gracelauncher.assistant.AssistantController? = null,
 ) {
+    if (assistant != null) com.galaxyrio.gracelauncher.assistant.AssistantLifecycle(assistant)
     var drawerOpen by rememberSaveable { mutableStateOf(initialDrawerOpen) }
     var selectedLetter by remember { mutableStateOf<String?>(null) }
     var overlay by remember { mutableStateOf<LauncherOverlay?>(null) }
@@ -558,7 +561,7 @@ internal fun LauncherScreen(
     val searchAlpha by animateFloatAsState(if (searching) 1f else 0f, tween(210), label = "searchFade")
     val isSettings = overlay == LauncherOverlay.Settings || overlay is LauncherOverlay.FolderSettings ||
         overlay is LauncherOverlay.SettingsDestination || overlay is LauncherOverlay.IconDesigner
-    val fullScreen = isSettings || overlay == LauncherOverlay.Search || overlay == LauncherOverlay.Favorites ||
+    val fullScreen = assistant?.chat?.visible == true || isSettings || overlay == LauncherOverlay.Search || overlay == LauncherOverlay.Favorites ||
         overlay is LauncherOverlay.IconDesigner || overlay is LauncherOverlay.EditPopup
     val privateAppEditing = when (val current = overlay) {
         is LauncherOverlay.AppDetails -> current.app.isPrivateSpace
@@ -611,9 +614,11 @@ internal fun LauncherScreen(
         allowPullDown = !fullScreen && !editingHome && overlay == null,
     )
     val homeGesturesEnabled = overlay == null && !fullScreen && !drawerOpen && !editingHome && backProgress.value == 0f
+    SideEffect { assistant?.homeShortcutEligible = homeGesturesEnabled }
+    DisposableEffect(assistant) { onDispose { assistant?.homeShortcutEligible = false } }
 
     LaunchedEffect(returnHomeRequests) {
-        returnHomeRequests.collect { drawerOpen = false; selectedLetter = null; overlay = null; editingHome = false }
+        returnHomeRequests.collect { assistant?.chat?.minimize(); drawerOpen = false; selectedLetter = null; overlay = null; editingHome = false }
     }
     LaunchedEffect(widgetEditRequest) {
         if (widgetEditRequest > 0) { drawerOpen = false; selectedLetter = null; overlay = null; editingHome = true }
@@ -878,9 +883,9 @@ internal fun LauncherScreen(
             onScrubFinished = finishScrubbing,
             autoHide = uiState.settings.hideAlphabet && !drawerOpen,
         )
-        if (!drawerOpen && !editingHome && !fullScreen && overlay == null && backProgress.value == 0f) {
+        if (assistant != null && !drawerOpen && !editingHome && !fullScreen && overlay == null && backProgress.value == 0f) {
             com.galaxyrio.gracelauncher.assistant.AssistantHome(
-                Modifier.align(Alignment.BottomEnd).padding(end = LauncherLayout.End, bottom = 22.dp + bottomInset),
+                assistant, Modifier.align(Alignment.BottomEnd).padding(end = LauncherLayout.End, bottom = 22.dp + bottomInset),
             )
         }
         if (!drawerOpen && editingHome) {
@@ -913,6 +918,7 @@ internal fun LauncherScreen(
           searchBackProgress = backProgress.value,
           searchEnterAlpha = searchAlpha, searchQuery = searchQuery,
       )
+      if (assistant != null) com.galaxyrio.gracelauncher.assistant.AssistantChat(assistant)
     }
 }
 
@@ -920,7 +926,7 @@ private fun Rect.toAndroidRect() = android.graphics.Rect(
     left.toInt(), top.toInt(), right.toInt(), bottom.toInt(),
 )
 
-private fun Modifier.retainedPage(visible: Boolean): Modifier =
+internal fun Modifier.retainedPage(visible: Boolean): Modifier =
     // A premeasured page must not leak hidden apps into TalkBack's tree.
     then(if (visible) Modifier else Modifier.clearAndSetSemantics {}).layout { measurable, constraints ->
     val placeable = measurable.measure(constraints)

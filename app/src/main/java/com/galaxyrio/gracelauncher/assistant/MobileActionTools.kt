@@ -25,11 +25,12 @@ data class MobileAction(val name: String, val arguments: Map<String, String>) {
     val needsCamera: Boolean
         get() = name == "turnOnFlashlight" || name == "turnOffFlashlight"
 
-    fun execute(context: Context): String = MobileActionExecutor.execute(context, this)
+    /** [request] is the RAW user transcript; empty fails safely. */
+    fun execute(context: Context, request: String = ""): String = MobileActionExecutor.execute(context, this, request)
 
     companion object {
         fun fromToolCall(name: String, arguments: Map<String, Any?>): MobileAction {
-            val strings = arguments.mapValues { (_, value) ->
+            val strings = MobileActionExecutor.applySchemaDefaults(name, arguments).mapValues { (_, value) ->
                 require(value is String) { "Action arguments must be strings." }
                 value
             }
@@ -40,7 +41,7 @@ data class MobileAction(val name: String, val arguments: Map<String, String>) {
 
 class MobileActionTools(private val onAction: (MobileAction) -> Unit) : ToolSet {
     private fun queue(name: String, arguments: Map<String, String> = emptyMap()): Map<String, String> {
-        // ponytail: queue only; confirmation and execution belong to the caller.
+        // ponytail: queue only; the caller validates against the raw request and executes.
         onAction(MobileAction(name, arguments))
         return mapOf("result" to "queued")
     }
@@ -51,12 +52,30 @@ class MobileActionTools(private val onAction: (MobileAction) -> Unit) : ToolSet 
     @Tool(description = "Turns the flashlight off")
     fun turnOffFlashlight(): Map<String, String> = queue("turnOffFlashlight")
 
-    @Tool(description = "Opens a new contact draft for the user to review and save.")
+    @Tool(description = "Starts a timer of the given duration, e.g. '5 minutes' or '1 hour 30 minutes'.")
+    fun createTimer(
+        @ToolParam(description = "The spoken duration, e.g. '10 minutes'.") duration: String,
+        @ToolParam(description = "An optional label, or empty.") label: String = "",
+    ): Map<String, String> = queue("createTimer", mapOf("duration" to duration, "label" to label))
+
+    @Tool(description = "Sets an alarm at a time today (or tomorrow if that time already passed today).")
+    fun createAlarm(
+        @ToolParam(description = "The time as 24-hour HH:mm, e.g. 07:30.") time: String,
+        @ToolParam(description = "An optional label, or empty.") label: String = "",
+    ): Map<String, String> = queue("createAlarm", mapOf("time" to time, "label" to label))
+
+    @Tool(description = "Calls a saved contact by their exact saved display name.")
+    fun callContact(
+        @ToolParam(description = "The saved display name exactly as spoken.") contactName: String,
+        @ToolParam(description = "The spoken phone label such as mobile, home or work, or empty.") phoneLabel: String = "",
+    ): Map<String, String> = queue("callContact", mapOf("contactName" to contactName, "phoneLabel" to phoneLabel))
+
+    @Tool(description = "Saves a new contact on this device using only details the user said.")
     fun createContact(
-        @ToolParam(description = "The first name of the contact.") firstName: String,
-        @ToolParam(description = "The last name of the contact.") lastName: String,
-        @ToolParam(description = "The phone number of the contact.") phoneNumber: String,
-        @ToolParam(description = "The email address of the contact.") email: String,
+        @ToolParam(description = "The provided first name of the contact. Required; never omit the provided name.") firstName: String,
+        @ToolParam(description = "The last name of the contact.") lastName: String = "",
+        @ToolParam(description = "The phone number of the contact.") phoneNumber: String = "",
+        @ToolParam(description = "The email address of the contact.") email: String = "",
     ): Map<String, String> = queue("createContact", mapOf(
         "firstName" to firstName, "lastName" to lastName, "phoneNumber" to phoneNumber, "email" to email,
     ))
@@ -76,7 +95,7 @@ class MobileActionTools(private val onAction: (MobileAction) -> Unit) : ToolSet 
     @Tool(description = "Opens the WiFi settings.")
     fun openWifiSettings(): Map<String, String> = queue("openWifiSettings")
 
-    @Tool(description = "Opens a new calendar event draft for the user to review and save.")
+    @Tool(description = "Saves a calendar event (15 minutes) today or tomorrow using only details the user said.")
     fun createCalendarEvent(
         @ToolParam(description = "The date and time of the event in the format YYYY-MM-DDTHH:MM:SS, in the device's local timezone.") datetime: String,
         @ToolParam(description = "The title of the event.") title: String,

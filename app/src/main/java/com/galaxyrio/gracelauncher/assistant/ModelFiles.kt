@@ -192,15 +192,6 @@ class ModelFiles(context: Context) {
         }
     }
 
-    suspend fun cleanStalePartials() = withContext(Dispatchers.IO) {
-        mutation.withLock {
-            AssistantModel.entries.forEach { model ->
-                remove(File(storage, "${file(model).name}.part"))
-                remove(File(storage, "${file(model).name}.sha256.part"))
-            }
-        }
-    }
-
     private fun remove(file: File) {
         if (file.exists() && !file.delete()) throw IOException("Cannot remove model file")
     }

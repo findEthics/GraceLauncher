@@ -28,11 +28,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -44,6 +42,7 @@ import com.galaxyrio.gracelauncher.data.PrivateSpaceFolderId
 import com.galaxyrio.gracelauncher.data.RecentlyInstalledFolderId
 import com.galaxyrio.gracelauncher.data.notifications.AppNotification
 import com.galaxyrio.gracelauncher.R
+import com.galaxyrio.gracelauncher.ui.retainedPage
 import com.galaxyrio.gracelauncher.ui.components.AppRowGestures
 import com.galaxyrio.gracelauncher.ui.components.LauncherAppRow
 import com.galaxyrio.gracelauncher.ui.components.LauncherIcon
@@ -128,7 +127,7 @@ fun AppDrawerScreen(
         ) { item ->
             // Keep every item's key and measured height. Hiding a group must
             // not change scroll bounds or move the selected header on release.
-            Box(Modifier.retainItemSpace(selectedLetter == null || item.section == selectedLetter)) {
+            Box(Modifier.retainedPage(selectedLetter == null || item.section == selectedLetter)) {
                 when (item) {
                     is DrawerItem.Header -> Text(
                         text = when (item.section) {
@@ -197,13 +196,3 @@ fun AppDrawerScreen(
         }
     }
 }
-
-private fun Modifier.retainItemSpace(visible: Boolean): Modifier =
-    // Unlike alpha=0, not placing a child also removes its invisible hit targets.
-    // Clear descendants from TalkBack while retaining the complete list geometry.
-    then(if (visible) Modifier else Modifier.clearAndSetSemantics {}).layout { measurable, constraints ->
-        val placeable = measurable.measure(constraints)
-        layout(placeable.width, placeable.height) {
-            if (visible) placeable.placeRelative(0, 0)
-        }
-    }

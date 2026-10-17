@@ -7,8 +7,13 @@ import android.os.UserHandle
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -54,6 +59,7 @@ import com.galaxyrio.gracelauncher.ui.LauncherActions
 import com.galaxyrio.gracelauncher.ui.LauncherScreen
 import com.galaxyrio.gracelauncher.ui.LauncherUiState
 import com.galaxyrio.gracelauncher.ui.ScheduleStatus
+import com.galaxyrio.gracelauncher.ui.retainedPage
 import com.galaxyrio.gracelauncher.ui.theme.GraceLauncherTheme
 import java.io.File
 import java.time.Instant
@@ -71,6 +77,24 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class LauncherInteractionTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun retainedLayoutHidesDescendantsWithoutMovingFollowingContent() {
+        var visible by mutableStateOf(true)
+        compose.setContent {
+            Column {
+                Box(Modifier.retainedPage(visible).size(40.dp)) { Text("Retained child") }
+                Text("Following child", Modifier.testTag("following_child"))
+            }
+        }
+        compose.onNodeWithText("Retained child").assertIsDisplayed()
+        val top = compose.onNodeWithTag("following_child").fetchSemanticsNode().boundsInRoot.top
+        compose.runOnIdle { visible = false }
+        compose.onNodeWithText("Retained child").assertDoesNotExist()
+        assertEquals(top, compose.onNodeWithTag("following_child").fetchSemanticsNode().boundsInRoot.top, 0f)
+        compose.runOnIdle { visible = true }
+        compose.onNodeWithText("Retained child").assertIsDisplayed()
+        assertEquals(top, compose.onNodeWithTag("following_child").fetchSemanticsNode().boundsInRoot.top, 0f)
+    }
 
     private val apps = listOf("Alarm", "Calendar", "Camera", "Chrome", "Clock", "Zen").map { label ->
         LauncherApp(ComponentName("test.${label.lowercase()}", "$label.Activity"), label, null)

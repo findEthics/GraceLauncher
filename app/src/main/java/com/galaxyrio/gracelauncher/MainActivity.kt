@@ -1,8 +1,10 @@
 package com.galaxyrio.gracelauncher
 
 import android.content.Intent
+import android.annotation.SuppressLint
 import android.graphics.Color
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -71,6 +73,13 @@ class MainActivity : ComponentActivity() {
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) appTransitions.close()
         return super.dispatchTouchEvent(event)
+    }
+
+    // AndroidX marks its override restricted; this must still delegate to Android's public dispatch chain.
+    @SuppressLint("RestrictedApi")
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (launcherViewModel.assistant.hardwareKey(event, currentFocus?.onCheckIsTextEditor() == true)) return true
+        return super.dispatchKeyEvent(event)
     }
 
     companion object { const val EXTRA_EDIT_WIDGET = "editHomeWidget" }

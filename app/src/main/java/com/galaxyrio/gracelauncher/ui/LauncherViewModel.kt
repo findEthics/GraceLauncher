@@ -214,6 +214,8 @@ data class LauncherUiState(
 }
 
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
+    private val assistantOwner = lazy { com.galaxyrio.gracelauncher.assistant.AssistantController(application, viewModelScope) }
+    val assistant get() = assistantOwner.value
     private val iconPacks = IconPackRepository(application)
     private val appRepository = AppRepository(application, iconPacks)
     private val privateAppCache = PrivateAppCache(application)
@@ -623,6 +625,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     override fun onCleared() {
+        if (assistantOwner.isInitialized()) assistant.close()
         getApplication<Application>().unregisterReceiver(packageReceiver)
         getApplication<Application>().unregisterReceiver(appRefreshReceiver)
         if (launcherAppsCallbackRegistered) launcherApps.unregisterCallback(launcherAppsCallback)

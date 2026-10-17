@@ -545,9 +545,17 @@
     </plurals>
     <!-- Offline assistant -->
     <string name="assistant_title">Offline assistant</string>
-    <string name="assistant_privacy">Speech and inference stay on this device. Downloads require internet; there is no cloud fallback. An installed on-device speech language pack is required.</string>
-    <string name="assistant_enable">Enable hold-to-talk on Home</string>
-    <string name="assistant_hold">Hold to speak; release to process. Accessibility: activate to start or stop.</string>
+    <string name="assistant_privacy">Chat and inference stay on this device. Conversations are kept only in memory and cleared when closed. Downloads require internet; there is no cloud fallback. Your keyboard and external apps may have their own network features.</string>
+    <string name="assistant_enable">Enable chat assistant on Home</string>
+    <string name="assistant_show_home_button">Show chat button on Home</string>
+    <string name="assistant_show_home_button_hint">When hidden, use ! or @ on the Home keyboard to open chat. The assistant must remain enabled.</string>
+    <string name="assistant_open_chat">Open chat assistant</string>
+    <string name="assistant_chat_hint">On Home, @ opens chat without adding text; ! opens action input. Chat normally, or start one complete English action with !. Enter or keyboard Send submits; Shift+Enter adds a line. Actions must be single-line. Back closes and clears chat.</string>
+    <string name="assistant_message">Message</string>
+    <string name="assistant_stop">Stop</string>
+    <string name="assistant_action_result">Action result</string>
+    <string name="assistant_processing">Processing locally…</string>
+    <string name="assistant_context_rolled">Older messages are no longer in the model context. Nothing is saved.</string>
     <string name="assistant_cancel">Cancel</string>
     <string name="assistant_confirm">Review action</string>
     <string name="assistant_continue">Continue</string>
@@ -557,6 +565,5 @@
     <string name="assistant_token_hide">Hide</string>
     <string name="assistant_download">Download model</string>
     <string name="assistant_delete">Delete model</string>
-    <string name="assistant_actions">Supported: flashlight, contact editor, email draft, maps, Wi-Fi settings and calendar editor. Review before execution. External apps may use internet.</string>
-    <string name="assistant_open_speech_settings">Open speech settings</string>
+    <string name="assistant_direct_actions">Prefix with ! to execute without confirmation: flashlight, timer, alarm, saved-contact calls, device-local contacts and calendar events. Opens email drafts, maps and Wi-Fi settings. Alarms need an explicit time ahead today; if it already passed, say tomorrow (for example, !alarm 7am tomorrow). Ambiguous requests fail without action. External apps may use internet.</string>
 </resources>
