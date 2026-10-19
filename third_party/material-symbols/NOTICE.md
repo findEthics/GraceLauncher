@@ -106,7 +106,6 @@ Media controls added 2026-09-27 (same official Outlined 24px style):
 - `ms_star.xml`: https://raw.githubusercontent.com/google/material-design-icons/master/symbols/web/star/materialsymbolsoutlined/star_24px.svg
 - `ms_info.xml`: https://raw.githubusercontent.com/google/material-design-icons/master/symbols/web/info/materialsymbolsoutlined/info_24px.svg
 - `ms_hourglass_empty.xml`: https://raw.githubusercontent.com/google/material-design-icons/master/symbols/web/hourglass_empty/materialsymbolsoutlined/hourglass_empty_24px.svg
-- `ms_category.xml`: https://raw.githubusercontent.com/google/material-design-icons/master/symbols/web/category/materialsymbolsoutlined/category_24px.svg
 - `ms_delete.xml`: https://raw.githubusercontent.com/google/material-design-icons/master/symbols/web/delete/materialsymbolsoutlined/delete_24px.svg
 - `ms_expand_more.xml`: https://raw.githubusercontent.com/google/material-design-icons/master/symbols/web/expand_more/materialsymbolsoutlined/expand_more_24px.svg
 - `ms_settings.xml`: https://raw.githubusercontent.com/google/material-design-icons/master/symbols/web/settings/materialsymbolsoutlined/settings_24px.svg

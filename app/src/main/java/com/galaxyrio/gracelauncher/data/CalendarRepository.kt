@@ -2,6 +2,7 @@ package com.galaxyrio.gracelauncher.data
 
 import android.content.Context
 import android.provider.CalendarContract
+import com.galaxyrio.gracelauncher.R
 import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
@@ -39,7 +40,7 @@ class CalendarRepository(private val context: Context) {
             buildList {
                 while (cursor.moveToNext()) {
                     val title = cursor.getString(titleIndex)?.trim().orEmpty()
-                    if (title.isBlank()) continue
+                        .ifBlank { context.getString(R.string.calendar_untitled_event) }
                     add(
                         ScheduleEvent(
                             id = cursor.getLong(idIndex),

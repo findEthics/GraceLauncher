@@ -44,6 +44,7 @@
     <string name="event_in_days">σε %1$dd</string>
     <string name="event_ongoing">τώρα</string>
     <string name="all_day">όλη μέρα</string>
+    <string name="calendar_untitled_event">Συμβάν χωρίς τίτλο</string>
     <string name="app_unavailable">Αυτή η εφαρμογή δεν μπορεί να ανοίξει</string>
     <string name="action_unavailable">Αυτή η ενέργεια δεν είναι διαθέσιμη σε αυτή τη συσκευή</string>
     <string name="app_shortcuts">Άνοιξε συντομεύσεις</string>

@@ -68,7 +68,7 @@ class LauncherSurfaceTest {
         screenshot(image, "drawer-status-bar-fade.png")
     }
 
-    @Test fun albumAndFabShadowsAreVisibleOutsideTheirOwnOutlines() {
+    @Test fun homeMediaShadowRemainsVisibleAndTheLauncherButtonIsRetired() {
         show()
         val image = compose.onRoot().captureToImage().asAndroidBitmap()
         fun darkness(x: Float, y: Float): Int {
@@ -76,9 +76,8 @@ class LauncherSurfaceTest {
             return 765 - ((pixel shr 16) and 255) - ((pixel shr 8) and 255) - (pixel and 255)
         }
         val album = compose.onNodeWithTag("home_media_artwork").fetchSemanticsNode().boundsInRoot
-        val fab = compose.onNodeWithTag("launcher_fab").fetchSemanticsNode().boundsInRoot
         assertTrue("Artwork shadow must survive the outer container", darkness(album.center.x, album.bottom + density) > 0)
-        assertTrue("FAB shadow must not be clipped to its circular surface", darkness(fab.center.x, fab.bottom + 2 * density) > 3)
+        compose.onNodeWithTag("launcher_fab").assertDoesNotExist()
         screenshot(image, "home-floating-shadows.png")
     }
 

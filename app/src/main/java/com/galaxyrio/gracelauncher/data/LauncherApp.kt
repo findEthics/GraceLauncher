@@ -39,6 +39,30 @@ data class LauncherApp(
     val packageName: String = componentName.packageName
     val sortKey: String = appSortKey(label)
     val section: String = sectionForSortKey(sortKey)
+    val isWorkProfile: Boolean get() = userSerial != null && !isPrivateSpace
+}
+
+internal fun profileSerialFromKey(key: String): Long? =
+    if (key.startsWith("profile:")) key.removePrefix("profile:").substringBefore(':').toLongOrNull()?.takeIf { it >= 0 } else null
+
+/** Unknown profile keys stay hidden unless the active inventory identifies them as work-profile data. */
+internal fun isPrivateOrUnknownProfileKey(key: String, workProfileSerials: Set<Long>): Boolean =
+    key.startsWith("profile:") && (profileSerialFromKey(key)?.let { it !in workProfileSerials } ?: true)
+
+internal fun savedShortcutOwner(
+    itemKey: String,
+    activity: String,
+    packageName: String,
+    apps: List<LauncherApp>,
+): LauncherApp? {
+    val owners = if (itemKey.startsWith("profile:")) {
+        val serial = profileSerialFromKey(itemKey) ?: return null
+        apps.filter { it.userSerial == serial }
+    } else {
+        apps.filter { it.userSerial == null }
+    }
+    return owners.firstOrNull { it.componentName.flattenToString() == activity }
+        ?: owners.firstOrNull { it.packageName == packageName }
 }
 
 val LauncherAlphabet: List<String> = ('A'..'Z').map(Char::toString) + "#"

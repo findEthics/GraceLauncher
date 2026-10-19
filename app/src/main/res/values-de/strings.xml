@@ -103,7 +103,6 @@
     <!--  Search and app drawer  -->
 <string name="search_apps">Apps suchen</string>
     <string name="search_no_results">Keine passenden Apps</string>
-    <string name="launcher_fab_description">Apps suchen. Berühren und halten, um die Einstellungen zu öffnen.</string>
     <string name="drawer_folders">Ordner</string>
     <string name="add_to_folder">Zum Ordner hinzufügen</string>
     <string name="create_app_folder">Neuer Ordner in der App-Liste</string>
@@ -127,6 +126,12 @@
     <string name="notification_days">%1$dd</string>
     <string name="notification_unavailable">Diese Benachrichtigung ist nicht mehr verfügbar</string>
     <string name="notification_allow">App-Benachrichtigungen anzeigen</string>
+    <string name="notification_reply">Antworten</string>
+    <string name="notification_reply_input">Antwortnachricht</string>
+    <string name="notification_reply_send">Senden</string>
+    <string name="notification_reply_cancel">Abbrechen</string>
+    <string name="notification_reply_failed">Die Antwort konnte nicht gesendet werden. Dein Entwurf bleibt erhalten.</string>
+    <string name="notification_reply_unlock">Entsperre dein Gerät, um zu antworten.</string>
     <!--  Media  -->
 <string name="media_service_name">Grace Launcher: Benachrichtigungen und Medien</string>
     <string name="media_player_summary">Wiedergabe auf dem Startbildschirm anzeigen</string>
@@ -154,7 +159,8 @@
     <string name="settings_about_summary">Grace Launcher, Updates und Lizenzen</string>
     <string name="settings_instant_access">Schnellzugriff</string>
     <string name="settings_calendar_agenda">Kalenderagenda</string>
-    <string name="settings_calendar_agenda_summary">Nächsten Termin auf dem Startbildschirm anzeigen</string>
+    <string name="settings_calendar_agenda_summary">Kalendertermine der nächsten 24 Stunden auf dem Startbildschirm anzeigen</string>
+    <string name="calendar_untitled_event">Unbenannter Termin</string>
     <string name="settings_weather">Wetter</string>
     <string name="settings_media_player">Medienplayer</string>
     <string name="settings_coming_soon">Demnächst verfügbar</string>

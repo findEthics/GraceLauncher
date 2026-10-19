@@ -1,18 +1,34 @@
 package com.galaxyrio.gracelauncher
 
+import android.app.KeyguardManager
 import android.app.Notification
 import android.app.PendingIntent
+import android.app.RemoteInput
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.session.MediaSession
+import android.os.Build
 import android.os.Process
 import android.os.UserHandle
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
+import androidx.core.content.ContextCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.galaxyrio.gracelauncher.data.LauncherApp
 import com.galaxyrio.gracelauncher.data.notifications.AppNotificationStore
+import com.galaxyrio.gracelauncher.data.notifications.NotificationReplyResult
+import com.galaxyrio.gracelauncher.data.notifications.appNotificationBucketKey
+import com.galaxyrio.gracelauncher.data.notifications.replyBlockedByKeyguard
+import com.galaxyrio.gracelauncher.ui.LauncherUiState
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -31,6 +47,20 @@ class AppNotificationStoreTest {
         StatusBarNotification(context.packageName, context.packageName, id, null, Process.myUid(), 0, 0,
             notification, user, time)
     private fun notifications() = store.state.value.values.flatten()
+    private fun replyPendingIntent(requestCode: Int, action: String = REPLY_ACTION): PendingIntent {
+        val mutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+        return PendingIntent.getBroadcast(context, requestCode, Intent(action).setPackage(context.packageName),
+            PendingIntent.FLAG_CANCEL_CURRENT or mutableFlag)
+    }
+    private fun replyAction(pendingIntent: PendingIntent, vararg inputs: RemoteInput) =
+        Notification.Action.Builder(R.drawable.ms_info, "Reply", pendingIntent).apply {
+            inputs.forEach { addRemoteInput(it) }
+        }.build()
+    private fun reply(key: String, revision: Long, text: String): NotificationReplyResult {
+        var result = NotificationReplyResult.Unavailable
+        main { result = store.reply(context, key, revision, text) }
+        return result
+    }
     @Before fun connect() = main { store.connected(emptyList()) { cancelled += it; true } }
 
     @Test fun longTextAndNewerNotificationAreUsedWithoutMutatingSystemNotifications() = main {
@@ -79,14 +109,94 @@ class AppNotificationStoreTest {
         assertTrue(cancelled.isEmpty())
     }
 
-    @Test fun mediaSecretAndOtherProfilesAreNotShownAsAppMessages() = main {
+    @Test fun mediaSecretAndUnclassifiedProfilesAreNotShownAsAppMessages() = main {
         val player = MediaSession(context, "notification-filter-test")
         try {
             store.posted(sbn(1, builder().setStyle(Notification.MediaStyle().setMediaSession(player.sessionToken)).build()))
             store.posted(sbn(2, builder().setVisibility(Notification.VISIBILITY_SECRET).build()))
             store.posted(sbn(3, user = UserHandle.getUserHandleForUid(1_000_000)))
+            store.posted(sbn(4, user = UserHandle.getUserHandleForUid(1_100_000)))
             assertTrue(notifications().isEmpty())
         } finally { player.release() }
+    }
+
+    @Test fun managedWorkNotificationKeepsItsProfileBucketAndReplyPendingIntent() {
+        val workUser = UserHandle.getUserHandleForUid(1_000_000)
+        val workSerial = 77L
+        val pending = replyPendingIntent(810, WORK_REPLY_ACTION)
+        val received = AtomicReference<Intent?>()
+        val delivered = CountDownLatch(1)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent != null) { received.set(Intent(intent)); delivered.countDown() }
+            }
+        }
+        ContextCompat.registerReceiver(context, receiver, IntentFilter(WORK_REPLY_ACTION), ContextCompat.RECEIVER_NOT_EXPORTED)
+        try {
+            val input = RemoteInput.Builder("work_reply").build()
+            main {
+                store.connected(emptyList(), resolveWorkProfileSerial = { user -> if (user == workUser) workSerial else null }) {
+                    cancelled += it
+                    true
+                }
+                store.posted(sbn(810, builder().setGroup("same-group").setGroupSummary(true).build()))
+                store.posted(sbn(810, builder().setGroup("same-group").addAction(replyAction(pending, input)).build(), user = workUser))
+
+                val personal = store.state.value[appNotificationBucketKey(context.packageName, null)].orEmpty().single()
+                val work = store.state.value[appNotificationBucketKey(context.packageName, workSerial)].orEmpty().single()
+                assertEquals(sbn(810).key, personal.key) // A same-name work child must not suppress the personal summary.
+                assertEquals(workSerial, work.userSerial)
+                assertTrue(work.canReply)
+                val component = android.content.ComponentName(context.packageName, "${context.packageName}.FixtureActivity")
+                val launcherState = LauncherUiState(
+                    apps = listOf(LauncherApp(component, "Personal copy", null),
+                        LauncherApp(component, "Work copy", null, user = workUser, userSerial = workSerial)),
+                    workProfileSerials = setOf(workSerial),
+                    notifications = store.state.value,
+                )
+                assertEquals(listOf(personal), launcherState.notificationsFor(launcherState.apps.first()))
+                assertEquals(listOf(work), launcherState.notificationsFor(launcherState.apps.last()))
+                assertEquals(NotificationReplyResult.Dispatched, store.reply(context, work.key, work.revision, "Work reply"))
+            }
+            assertTrue(delivered.await(3, TimeUnit.SECONDS))
+            val intent = requireNotNull(received.get())
+            assertEquals(WORK_REPLY_ACTION, intent.action)
+            assertEquals("Work reply", requireNotNull(RemoteInput.getResultsFromIntent(intent))
+                .getCharSequence("work_reply").toString())
+        } finally {
+            context.unregisterReceiver(receiver)
+            pending.cancel()
+        }
+    }
+
+    @Test fun cachedWorkActionsAndContentHideWhenTheProfileBecomesUnavailable() = main {
+        val workUser = UserHandle.getUserHandleForUid(1_000_000)
+        val workSerial = 77L
+        var profileAvailable = true
+        val reply = replyPendingIntent(811, WORK_REPLY_ACTION)
+        val content = replyPendingIntent(812, "fixture.notification.WORK_CONTENT")
+        try {
+            val input = RemoteInput.Builder("work_reply").build()
+            store.connected(emptyList(), resolveWorkProfileSerial = { user ->
+                if (user == workUser && profileAvailable) workSerial else null
+            }) { cancelled += it; true }
+            store.posted(sbn(811, builder().setContentIntent(content).addAction(replyAction(reply, input)).build(), user = workUser))
+            val item = notifications().single()
+            assertTrue(item.canDismiss)
+            assertTrue(item.canOpen)
+            assertTrue(item.canReply)
+
+            profileAvailable = false // Covers a quiet, storage-locked, removed, or no-longer-classified profile.
+            store.refreshProfileVisibility()
+            assertTrue(notifications().isEmpty())
+            assertFalse(store.dismiss(item.key, item.revision))
+            assertFalse(store.open(context, item.key, item.revision))
+            assertEquals(NotificationReplyResult.Unavailable, store.reply(context, item.key, item.revision, "Work reply"))
+            assertTrue(cancelled.isEmpty())
+        } finally {
+            reply.cancel()
+            content.cancel()
+        }
     }
 
     @Test fun disconnectClearsPrivateContentAndReconnectRebuildsOnlyCurrentNotifications() = main {
@@ -117,5 +227,198 @@ class AppNotificationStoreTest {
         pending.cancel()
         val updated = notifications().single()
         assertFalse(store.open(context, updated.key, updated.revision))
+    }
+
+    @Test fun replyUsesTheSelectedActionAndOnlyFreeFormInputKeys() {
+        val replyPending = replyPendingIntent(801)
+        val unsupportedPending = replyPendingIntent(802, "fixture.notification.UNSUPPORTED")
+        val contentPending = replyPendingIntent(803, "fixture.notification.CONTENT")
+        val received = AtomicReference<Intent?>()
+        val delivered = CountDownLatch(1)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent != null) {
+                    received.set(Intent(intent))
+                    delivered.countDown()
+                }
+            }
+        }
+        ContextCompat.registerReceiver(context, receiver, IntentFilter(REPLY_ACTION), ContextCompat.RECEIVER_NOT_EXPORTED)
+        try {
+            val choices = RemoteInput.Builder("choice").setAllowFreeFormInput(false).setChoices(arrayOf("Yes", "No")).build()
+            val dataOnly = RemoteInput.Builder("attachment").setAllowFreeFormInput(false)
+                .setAllowDataType("image/png", true).build()
+            val answer = RemoteInput.Builder("answer").setAllowFreeFormInput(true).build()
+            val alternateAnswer = RemoteInput.Builder("alternate_answer").setAllowFreeFormInput(true).build()
+            val notification = builder().setContentIntent(contentPending)
+                .addAction(replyAction(unsupportedPending, choices, dataOnly))
+                .addAction(replyAction(replyPending, choices, dataOnly, answer, alternateAnswer)).build()
+            main { store.posted(sbn(1, notification)) }
+            val item = notifications().single()
+            assertTrue(item.canReply)
+            assertEquals(NotificationReplyResult.Dispatched, reply(item.key, item.revision, "Hello"))
+            assertTrue(delivered.await(3, TimeUnit.SECONDS))
+
+            val intent = requireNotNull(received.get())
+            val results = requireNotNull(RemoteInput.getResultsFromIntent(intent))
+            assertEquals(REPLY_ACTION, intent.action)
+            assertEquals("Hello", results.getCharSequence("answer").toString())
+            assertEquals("Hello", results.getCharSequence("alternate_answer").toString())
+            assertNull(results.getCharSequence("choice"))
+            assertNull(results.getCharSequence("attachment"))
+            assertEquals(RemoteInput.SOURCE_FREE_FORM_INPUT, RemoteInput.getResultsSource(intent))
+            assertTrue(cancelled.isEmpty())
+            assertEquals(item.key, notifications().single().key)
+        } finally {
+            context.unregisterReceiver(receiver)
+            replyPending.cancel()
+            unsupportedPending.cancel()
+            contentPending.cancel()
+        }
+    }
+
+    @Test fun choiceOnlyAndDataOnlyActionsDoNotExposeReply() {
+        val pending = replyPendingIntent(804)
+        try {
+            val choices = RemoteInput.Builder("choice").setAllowFreeFormInput(false).setChoices(arrayOf("Yes")).build()
+            val dataOnly = RemoteInput.Builder("attachment").setAllowFreeFormInput(false)
+                .setAllowDataType("image/png", true).build()
+            main { store.posted(sbn(1, builder().addAction(replyAction(pending, choices, dataOnly)).build())) }
+            val item = notifications().single()
+            assertFalse(item.canReply)
+            assertEquals(NotificationReplyResult.Unavailable, reply(item.key, item.revision, "Hello"))
+            assertTrue(cancelled.isEmpty())
+        } finally { pending.cancel() }
+    }
+
+    @Test fun ordinaryActionsRemainVisibleWithoutReplyControls() {
+        val pending = replyPendingIntent(808, "fixture.notification.ORDINARY")
+        try {
+            val action = Notification.Action.Builder(R.drawable.ms_info, "Open", pending).build()
+            main { store.posted(sbn(1, builder().addAction(action).build())) }
+            val item = notifications().single()
+            assertEquals("Fixture title", item.title)
+            assertFalse(item.canReply)
+            assertTrue(cancelled.isEmpty())
+        } finally { pending.cancel() }
+    }
+
+    @Test fun workReplyAuthenticationCannotBeSatisfiedByPersonalUnlock() {
+        assumeTrue(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+        assumeTrue("Unlock the disposable emulator before running focused reply tests",
+            !context.getSystemService(KeyguardManager::class.java).isDeviceLocked)
+        val workUser = UserHandle.getUserHandleForUid(1_000_000)
+        val pending = replyPendingIntent(813, WORK_REPLY_ACTION)
+        val delivered = CountDownLatch(1)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) { delivered.countDown() }
+        }
+        ContextCompat.registerReceiver(context, receiver, IntentFilter(WORK_REPLY_ACTION), ContextCompat.RECEIVER_NOT_EXPORTED)
+        try {
+            val action = Notification.Action.Builder(R.drawable.ms_info, "Reply", pending)
+                .addRemoteInput(RemoteInput.Builder("work_reply").build())
+                .setAuthenticationRequired(true).build()
+            main {
+                // Available work storage does not prove a separate work challenge is unlocked.
+                store.connected(emptyList(), resolveWorkProfileSerial = { user ->
+                    if (user == workUser) 77L else null
+                }) { cancelled += it; true }
+                store.posted(sbn(813, builder().addAction(action).build(), user = workUser))
+            }
+            val item = notifications().single()
+            assertFalse(item.canReply)
+            assertEquals(NotificationReplyResult.Unavailable, reply(item.key, item.revision, "Work reply"))
+            assertFalse(delivered.await(250, TimeUnit.MILLISECONDS))
+        } finally {
+            context.unregisterReceiver(receiver)
+            pending.cancel()
+        }
+    }
+
+    @Test fun replyAuthenticationRequirementUsesTheActualLockState() {
+        assumeTrue(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+        assumeTrue("Unlock the disposable emulator before running focused reply tests",
+            !context.getSystemService(KeyguardManager::class.java).isDeviceLocked)
+        val pending = replyPendingIntent(809)
+        val received = CountDownLatch(1)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) { received.countDown() }
+        }
+        ContextCompat.registerReceiver(context, receiver, IntentFilter(REPLY_ACTION), ContextCompat.RECEIVER_NOT_EXPORTED)
+        try {
+            val input = RemoteInput.Builder("reply").build()
+            val action = Notification.Action.Builder(R.drawable.ms_info, "Reply", pending)
+                .addRemoteInput(input).setAuthenticationRequired(true).build()
+            main { store.posted(sbn(1, builder().addAction(action).build())) }
+            val item = notifications().single()
+            assertTrue(item.canReply)
+            assertEquals(NotificationReplyResult.Dispatched, reply(item.key, item.revision, "Unlocked reply"))
+            assertTrue(received.await(3, TimeUnit.SECONDS))
+            assertEquals(item.key, notifications().single().key)
+        } finally {
+            context.unregisterReceiver(receiver)
+            pending.cancel()
+        }
+    }
+
+    @Test fun authenticationRequiredRepliesAreBlockedOnlyWhenLocked() {
+        assertTrue(replyBlockedByKeyguard(requiresAuthentication = true, isDeviceLocked = true))
+        assertFalse(replyBlockedByKeyguard(requiresAuthentication = true, isDeviceLocked = false))
+        assertFalse(replyBlockedByKeyguard(requiresAuthentication = false, isDeviceLocked = true))
+    }
+
+    @Test fun immutableReplyPendingIntentIsNotExposedAsReply() {
+        val pending = PendingIntent.getBroadcast(context, 807, Intent(REPLY_ACTION).setPackage(context.packageName),
+            PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        try {
+            val input = RemoteInput.Builder("reply").build()
+            main { store.posted(sbn(1, builder().addAction(replyAction(pending, input)).build())) }
+            val item = notifications().single()
+            assertFalse(item.canReply)
+            assertEquals(NotificationReplyResult.Unavailable, reply(item.key, item.revision, "Hello"))
+        } finally { pending.cancel() }
+    }
+
+    @Test fun replyRequiresNonBlankCurrentVisibleConnectedNotification() {
+        val pending = replyPendingIntent(805)
+        try {
+            val input = RemoteInput.Builder("reply").build()
+            val currentNotification = builder().addAction(replyAction(pending, input)).build()
+            main { store.posted(sbn(1, currentNotification)) }
+            val old = notifications().single()
+            assertEquals(NotificationReplyResult.InvalidText, reply(old.key, old.revision, " \n "))
+
+            main { store.ranking { false } }
+            assertEquals(NotificationReplyResult.Unavailable, reply(old.key, old.revision, "Hello"))
+            main { store.ranking { true } }
+
+            main { store.posted(sbn(1, builder().setContentText("Replacement").addAction(replyAction(pending, input)).build(), time = 5)) }
+            val replacement = notifications().single()
+            assertNotEquals(old.revision, replacement.revision)
+            assertEquals(NotificationReplyResult.Unavailable, reply(old.key, old.revision, "Hello"))
+
+            main { store.removed(replacement.key) }
+            assertEquals(NotificationReplyResult.Unavailable, reply(replacement.key, replacement.revision, "Hello"))
+            main { store.posted(sbn(2, currentNotification)) }
+            val disconnected = notifications().single()
+            main { store.disconnected() }
+            assertEquals(NotificationReplyResult.Unavailable, reply(disconnected.key, disconnected.revision, "Hello"))
+        } finally { pending.cancel() }
+    }
+
+    @Test fun canceledReplyPendingIntentFailsWithoutClearingNotification() {
+        val pending = replyPendingIntent(806)
+        val input = RemoteInput.Builder("reply").build()
+        main { store.posted(sbn(1, builder().addAction(replyAction(pending, input)).build())) }
+        val item = notifications().single()
+        pending.cancel()
+        assertEquals(NotificationReplyResult.Failed, reply(item.key, item.revision, "Hello"))
+        assertEquals(item.key, notifications().single().key)
+        assertTrue(cancelled.isEmpty())
+    }
+
+    private companion object {
+        const val REPLY_ACTION = "fixture.notification.REPLY"
+        const val WORK_REPLY_ACTION = "fixture.notification.WORK_REPLY"
     }
 }

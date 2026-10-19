@@ -57,9 +57,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.galaxyrio.gracelauncher.R
 import com.galaxyrio.gracelauncher.data.LauncherApp
-import com.galaxyrio.gracelauncher.data.GraceButtonAction
-import com.galaxyrio.gracelauncher.data.GraceButtonTarget
-import com.galaxyrio.gracelauncher.ui.components.ShortcutPickerScreen
 import com.galaxyrio.gracelauncher.ui.LauncherActions
 import com.galaxyrio.gracelauncher.ui.LauncherUiState
 import com.galaxyrio.gracelauncher.ui.components.LauncherIcon
@@ -74,7 +71,7 @@ import kotlinx.coroutines.withContext
 internal enum class SettingsPage {
     Root, Productivity, Clock, ClockStyle, Calendar, Weather, Themes, Advanced, About, HiddenApps, Folders, FolderEditor,
     Changelog, Licenses, AppLicense, IconPacks, IconDesigner, IconDesignerApp, PrivateSpace, PrivateSpaceEditor, Search,
-    MediaPlayer, GraceButton, GraceTapApp, GraceLongApp, GraceTapShortcut, GraceLongShortcut,
+    MediaPlayer,
 }
 
 /** Navigation owns each page's saved state and seekable predictive-back transition. */
@@ -185,40 +182,6 @@ fun LauncherSettingsScreen(
                     SettingsPage.Clock -> ClockSettings(uiState, actions, back)
                     SettingsPage.Search -> SearchSettingsScreen(uiState, actions, back)
                     SettingsPage.MediaPlayer -> MediaPlayerSettings(uiState, actions, back)
-                    SettingsPage.GraceButton -> GraceButtonSettingsScreen(uiState, actions, back) { longClick, shortcut ->
-                        navigate(if (shortcut) {
-                            if (longClick) SettingsPage.GraceLongShortcut else SettingsPage.GraceTapShortcut
-                        } else if (longClick) SettingsPage.GraceLongApp else SettingsPage.GraceTapApp)
-                    }
-                    SettingsPage.GraceTapApp, SettingsPage.GraceLongApp -> {
-                        val longClick = page == SettingsPage.GraceLongApp
-                        val target = if (longClick) uiState.settings.graceButton.longPress else uiState.settings.graceButton.tap
-                        AppSelectionSettings(uiState, actions, back, title = stringResource(R.string.grace_button_open_app),
-                            tag = "grace_button_app", selectedKey = target.itemKey.takeIf { target.action == GraceButtonAction.App }, excludeOwnApp = false,
-                            onSelect = { key -> if (isCurrent() && key != null) {
-                                actions.updateSettings { it.copy(graceButton = it.graceButton.withTarget(longClick, GraceButtonTarget(GraceButtonAction.App, key))) }
-                                back()
-                            } })
-                    }
-                    SettingsPage.GraceTapShortcut, SettingsPage.GraceLongShortcut -> {
-                        val longClick = page == SettingsPage.GraceLongShortcut
-                        val target = if (longClick) uiState.settings.graceButton.longPress else uiState.settings.graceButton.tap
-                        val pickerScope = rememberCoroutineScope()
-                        var saving by remember { mutableStateOf(false) }
-                        ShortcutPickerScreen(uiState, actions, setOfNotNull(target.itemKey.takeIf { target.action == GraceButtonAction.Shortcut }),
-                            back, singleChoice = true, busy = saving, onSelect = { app ->
-                                saving = true
-                                pickerScope.launch {
-                                    try {
-                                        if (actions.rememberShortcut(app) && isCurrent()) {
-                                            actions.updateSettings { it.copy(graceButton = it.graceButton.withTarget(longClick,
-                                                GraceButtonTarget(GraceButtonAction.Shortcut, app.key))) }
-                                            back()
-                                        }
-                                    } finally { saving = false }
-                                }
-                            })
-                    }
                     SettingsPage.Weather -> WeatherSettings(uiState, actions, back)
                     SettingsPage.Themes -> ThemeSettings(uiState, actions, back,
                         onClockStyle = { navigate(SettingsPage.ClockStyle) }, onIconPacks = { navigate(SettingsPage.IconPacks) })
@@ -243,17 +206,7 @@ fun LauncherSettingsScreen(
                     )
                     SettingsPage.Calendar -> CalendarSettings(uiState, actions, back)
                     SettingsPage.Advanced -> SettingsScaffold(stringResource(R.string.settings_advanced), "settings_advanced", back) { padding ->
-                        Box(
-                            Modifier.fillMaxSize().padding(padding).padding(24.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                stringResource(R.string.settings_coming_soon),
-                                Modifier.testTag("settings_advanced_coming_soon"),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        com.galaxyrio.gracelauncher.assistant.AssistantSettings(Modifier.fillMaxSize().padding(padding))
                     }
                     SettingsPage.About -> AboutSettings(back, navigate)
                     SettingsPage.HiddenApps -> HiddenAppsSettings(uiState, actions, back)

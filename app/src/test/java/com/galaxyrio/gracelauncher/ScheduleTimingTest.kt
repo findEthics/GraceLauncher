@@ -2,9 +2,10 @@ package com.galaxyrio.gracelauncher
 
 import com.galaxyrio.gracelauncher.data.CountdownUnit
 import com.galaxyrio.gracelauncher.data.ScheduleEvent
-import com.galaxyrio.gracelauncher.data.eventCountdown
-import com.galaxyrio.gracelauncher.data.nextVisibleEvent
 import com.galaxyrio.gracelauncher.data.agendaDays
+import com.galaxyrio.gracelauncher.data.eventCountdown
+import com.galaxyrio.gracelauncher.data.visibleScheduleEvents
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -19,12 +20,51 @@ class ScheduleTimingTest {
     )
 
     @Test
-    fun expiredEventDoesNotHideTheNextAppointment() {
-        val expired = event(now.minusSeconds(3600), now)
+    fun agendaIncludesEveryOverlappingOccurrenceInChronologicalOrder() {
+        val expired = event(now.minusSeconds(7200), now.minusSeconds(3600))
+        val endedAtNow = event(now.minusSeconds(3600), now)
+        val ongoing = event(now.minusSeconds(600), now.plusSeconds(1800))
+        val startsNow = event(now, now)
         val later = event(now.plusSeconds(7200), now.plusSeconds(10800))
-        val next = event(now.plusSeconds(1680), now.plusSeconds(5280))
-        assertEquals(next, nextVisibleEvent(listOf(expired, later, next), now))
-        assertEquals(28, eventCountdown(next, now).value)
+        val soon = event(now.plusSeconds(1680), now.plusSeconds(5280))
+
+        assertEquals(
+            listOf(ongoing, startsNow, soon, later),
+            visibleScheduleEvents(listOf(later, expired, startsNow, ongoing, endedAtNow, soon), now, ZoneId.of("UTC")),
+        )
+        assertEquals(28, eventCountdown(soon, now).value)
+    }
+
+    @Test
+    fun agendaUsesAnElapsedHalfOpen24HourWindowAndIncludesInstantOccurrences() {
+        val start = Instant.parse("2026-03-08T06:30:00Z")
+        val horizon = start.plus(Duration.ofHours(24))
+        val atNow = event(start, start)
+        val futureZero = event(start.plusSeconds(12 * 3600L), start.plusSeconds(12 * 3600L))
+        val endsAtHorizon = event(horizon.minusSeconds(1), horizon)
+        val justBeforeHorizon = event(horizon.minusNanos(1), horizon.plusSeconds(1))
+        val beforeNow = event(start.minusNanos(1), start.minusNanos(1))
+        val endedAtNow = event(start.minusSeconds(30), start)
+        val beginsAtHorizon = event(horizon, horizon.plusSeconds(1))
+        val atHorizon = event(horizon, horizon)
+        val afterHorizon = event(horizon.plusNanos(1), horizon.plusNanos(1))
+
+        assertEquals(
+            listOf(atNow, futureZero, endsAtHorizon, justBeforeHorizon),
+            visibleScheduleEvents(
+                listOf(afterHorizon, beginsAtHorizon, beforeNow, atHorizon, justBeforeHorizon, endedAtNow, endsAtHorizon, futureZero, atNow),
+                start,
+                ZoneId.of("America/New_York"),
+            ),
+        )
+    }
+
+    @Test
+    fun recurringOccurrencesWithTheSameProviderIdAreNotDeduplicated() {
+        val first = event(now.plusSeconds(3600), now.plusSeconds(7200))
+        val second = event(now.plusSeconds(23 * 3600L), now.plusSeconds(25 * 3600L)).copy(id = first.id)
+
+        assertEquals(listOf(first, second), visibleScheduleEvents(listOf(second, first), now, ZoneId.of("UTC")))
     }
 
     @Test
@@ -47,8 +87,53 @@ class ScheduleTimingTest {
         assertEquals(CountdownUnit.Hours, eventCountdown(allDay, now, shanghai).unit)
         assertEquals(CountdownUnit.AllDay,
             eventCountdown(allDay, Instant.parse("2026-09-22T16:00:00Z"), shanghai).unit)
-        assertEquals(null,
-            nextVisibleEvent(listOf(allDay), Instant.parse("2026-09-23T16:00:00Z"), shanghai))
+        assertEquals(listOf(allDay), visibleScheduleEvents(listOf(allDay), now, shanghai))
+        assertEquals(emptyList<ScheduleEvent>(),
+            visibleScheduleEvents(listOf(allDay), Instant.parse("2026-09-23T16:00:00Z"), shanghai))
+    }
+
+    @Test
+    fun allDayBoundariesConvertUtcDatesInNegativeOffsetsBeforeFiltering() {
+        val previousLocalDay = event(
+            Instant.parse("2026-09-22T00:00:00Z"), Instant.parse("2026-09-23T00:00:00Z"), allDay = true,
+        )
+        val currentLocalDay = event(
+            Instant.parse("2026-09-23T00:00:00Z"), Instant.parse("2026-09-24T00:00:00Z"), allDay = true,
+        )
+        val nextLocalDay = event(
+            Instant.parse("2026-09-24T00:00:00Z"), Instant.parse("2026-09-25T00:00:00Z"), allDay = true,
+        )
+
+        assertEquals(
+            listOf(previousLocalDay, currentLocalDay),
+            visibleScheduleEvents(
+                listOf(currentLocalDay, nextLocalDay, previousLocalDay),
+                Instant.parse("2026-09-23T05:00:00Z"),
+                ZoneId.of("America/Los_Angeles"),
+            ),
+        )
+    }
+
+    @Test
+    fun allDayOccurrencesRespectDstLocalMidnightsAndElapsedWindow() {
+        val transitionDay = event(
+            Instant.parse("2026-03-08T00:00:00Z"), Instant.parse("2026-03-09T00:00:00Z"), allDay = true,
+        )
+        val nextDay = event(
+            Instant.parse("2026-03-09T00:00:00Z"), Instant.parse("2026-03-10T00:00:00Z"), allDay = true,
+        )
+        val outside = event(
+            Instant.parse("2026-03-10T00:00:00Z"), Instant.parse("2026-03-11T00:00:00Z"), allDay = true,
+        )
+
+        assertEquals(
+            listOf(transitionDay, nextDay),
+            visibleScheduleEvents(
+                listOf(outside, nextDay, transitionDay),
+                Instant.parse("2026-03-09T02:00:00Z"),
+                ZoneId.of("America/New_York"),
+            ),
+        )
     }
 
     @Test

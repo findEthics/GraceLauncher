@@ -31,6 +31,7 @@ internal fun SwipeDismissContainer(
     onDismiss: () -> Boolean,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    consumeHorizontalDragsWhenDisabled: Boolean = true,
     backgroundColor: Color = MaterialTheme.colorScheme.surfaceContainerLow,
     contentColor: Color = MaterialTheme.colorScheme.primary,
     clipContent: Boolean = true,
@@ -63,10 +64,10 @@ internal fun SwipeDismissContainer(
         onDismiss = dismiss,
         modifier = modifier.then(if (clipContent) Modifier.clip(LauncherLayout.RowShape) else Modifier)
             .onSizeChanged { width = it.width.coerceAtLeast(1) }
-            .pointerInput(enabled) {
+            .pointerInput(enabled, consumeHorizontalDragsWhenDisabled) {
                 // Non-clearable notifications still consume a horizontal drag.
                 // Otherwise clickable treats an in-bounds swipe as a message tap.
-                if (!enabled) detectHorizontalDragGestures { change, _ -> change.consume() }
+                if (!enabled && consumeHorizontalDragsWhenDisabled) detectHorizontalDragGestures { change, _ -> change.consume() }
             }
             .semantics {
                 if (enabled) customActions = listOf(CustomAccessibilityAction(label) { currentDismiss() })

@@ -11,6 +11,7 @@ import com.galaxyrio.gracelauncher.data.LauncherSettings
 import com.galaxyrio.gracelauncher.data.ClockStyle
 import com.galaxyrio.gracelauncher.data.LauncherShortcut
 import com.galaxyrio.gracelauncher.data.ScheduleEvent
+import com.galaxyrio.gracelauncher.data.notifications.NotificationReplyResult
 import com.galaxyrio.gracelauncher.data.ShortcutResult
 import com.galaxyrio.gracelauncher.data.ShortcutStatus
 import com.galaxyrio.gracelauncher.data.WallpaperTextMode
@@ -75,4 +76,7 @@ data class LauncherActions(
     val refreshWeather: () -> Unit = {},
     val openBreezyWeather: () -> Unit = {},
     val installBreezyWeather: () -> Unit = {},
+    val replyNotification: (String, Long, String) -> NotificationReplyResult = { _, _, _ -> NotificationReplyResult.Unavailable },
+    val lockScreen: () -> Boolean = { false },
+    val openAccessibilitySettings: () -> Unit = {},
 )

@@ -106,7 +106,8 @@ class TypographyTest {
     @Test
     fun fullScreenSettingsInheritFamilyIncludingSmallTextAndSegmentedItems() {
         showLauncher()
-        compose.onNodeWithTag("launcher_fab").performTouchInput { longClick() }
+        compose.onNodeWithTag("home_clock").performTouchInput { longClick() }
+        compose.onNodeWithText(string(R.string.grace_settings)).performClick()
         awaitSurface("settings_root")
         // The flexible app bar keeps both expanded and collapsed titles composed.
         val titles = compose.onAllNodesWithText(string(R.string.settings_title), useUnmergedTree = true)

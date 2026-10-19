@@ -2,7 +2,10 @@ package com.galaxyrio.gracelauncher
 
 import android.content.res.Configuration
 import android.content.ComponentName
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Bitmap
+import android.os.BatteryManager
 import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -14,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.toArgb
@@ -34,6 +38,7 @@ import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
@@ -131,23 +136,127 @@ class HomeAgendaHeaderTest {
         }
     }
 
-    @Test fun disablingCalendarRemovesTheSecondRowAndItsSpaceWithoutHidingWeather() {
+    @Test fun everyMatchingOccurrenceRendersAndDistantEventsStayOffHome() {
+        val now = Instant.now()
+        state = state.copy(events = listOf(
+            scheduleEvent(10, "In progress", now.minusSeconds(600), now.plusSeconds(3600)),
+            scheduleEvent(11, "Coming up", now.plusSeconds(1800), now.plusSeconds(3600)),
+            scheduleEvent(12, "Near the 24 hour edge", now.plusSeconds(23 * 3600L), now.plusSeconds(25 * 3600L)),
+            scheduleEvent(13, "Outside the window", now.plusSeconds(25 * 3600L), now.plusSeconds(26 * 3600L)),
+        ))
+        showHome()
+
+        compose.onAllNodes(hasTestTag("schedule_line"), useUnmergedTree = true).assertCountEquals(3)
+        listOf("In progress", "Coming up", "Near the 24 hour edge").forEach { title ->
+            compose.onNodeWithText(title, useUnmergedTree = true).assertIsDisplayed()
+        }
+        compose.onNodeWithText("Outside the window", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test fun emptyAgendaMatchesCalendarOffAndOccurrencesReappearWithoutChangingTheSetting() {
+        val anchor = LauncherApp(ComponentName("test.anchor", "Anchor"), "Anchor", null)
+        val batteryText = currentBatteryText()
+        val now = Instant.now()
+        val returningEvents = listOf(
+            scheduleEvent(20, "Returned", now.minusSeconds(60), now.plusSeconds(3 * 3600L)),
+            scheduleEvent(21, "Upcoming again", now.plusSeconds(2 * 3600L), now.plusSeconds(3 * 3600L)),
+        )
+        state = state.copy(apps = listOf(anchor), favoriteKeys = setOf(anchor.key))
+        showHome()
+        val dateText = layout("home_date_text").layoutInput.text.text
+
+        for (weatherEnabled in listOf(false, true)) {
+            for (calendarAboveClock in listOf(false, true)) {
+                compose.runOnIdle {
+                    state = state.copy(
+                        settings = state.settings.copy(
+                            calendarAgenda = true,
+                            weatherEnabled = weatherEnabled,
+                            calendarAboveClock = calendarAboveClock,
+                            showBatteryPercentage = true,
+                        ),
+                        events = emptyList(),
+                    )
+                }
+                compose.waitForIdle()
+                compose.runOnIdle { assertTrue("The agenda preference stays enabled", state.settings.calendarAgenda) }
+                node("home_date_text").assertDoesNotExist()
+                node("home_date_battery_text").assertTextEquals(batteryText)
+                node("schedule_line").assertDoesNotExist()
+                if (weatherEnabled) node("home_weather").assertIsDisplayed()
+                else {
+                    node("home_date").assertIsDisplayed()
+                    node("home_weather").assertDoesNotExist()
+                }
+                val emptyAgendaLayout = listOf<Rect?>(
+                    bounds("home_clock"),
+                    bounds("home_date"),
+                    if (weatherEnabled) bounds("home_weather") else null,
+                    bounds("app:${anchor.key}"),
+                )
+
+                compose.runOnIdle { state = state.copy(settings = state.settings.copy(calendarAgenda = false)) }
+                compose.waitForIdle()
+                node("home_date_text").assertDoesNotExist()
+                node("home_date_battery_text").assertTextEquals(batteryText)
+                node("schedule_line").assertDoesNotExist()
+                if (weatherEnabled) node("home_weather").assertIsDisplayed()
+                else {
+                    node("home_date").assertIsDisplayed()
+                    node("home_weather").assertDoesNotExist()
+                }
+                val disabledCalendarLayout = listOf<Rect?>(
+                    bounds("home_clock"),
+                    bounds("home_date"),
+                    if (weatherEnabled) bounds("home_weather") else null,
+                    bounds("app:${anchor.key}"),
+                )
+                assertEquals(
+                    "No qualifying event must use the calendar-off layout (weather=$weatherEnabled, above=$calendarAboveClock)",
+                    disabledCalendarLayout,
+                    emptyAgendaLayout,
+                )
+
+                compose.runOnIdle { state = state.copy(settings = state.settings.copy(showBatteryPercentage = false)) }
+                compose.waitForIdle()
+                node("home_date_text").assertDoesNotExist()
+                node("home_date_battery_text").assertDoesNotExist()
+                node("schedule_line").assertDoesNotExist()
+                if (weatherEnabled) node("home_weather").assertIsDisplayed()
+                else node("home_date").assertDoesNotExist()
+
+                compose.runOnIdle {
+                    state = state.copy(
+                        settings = state.settings.copy(calendarAgenda = true, showBatteryPercentage = true),
+                        events = returningEvents,
+                    )
+                }
+                compose.waitForIdle()
+                compose.onAllNodes(hasTestTag("schedule_line"), useUnmergedTree = true).assertCountEquals(2)
+                node("home_date_text").assertIsDisplayed().assertTextEquals("$dateText  $batteryText")
+                compose.runOnIdle { assertTrue("The agenda preference remains enabled", state.settings.calendarAgenda) }
+            }
+        }
+    }
+
+    @Test fun disablingCalendarRemovesTheAgendaAndItsSpaceWithoutHidingWeather() {
         showHome()
         val twoLineHeight = bounds("home_date").height
         val eventHeight = bounds("schedule_line").height
         compose.runOnIdle { state = state.copy(settings = state.settings.copy(calendarAgenda = false)) }
         node("schedule_line").assertDoesNotExist()
         node("schedule_title").assertDoesNotExist()
+        node("home_date_text").assertDoesNotExist()
         node("home_weather").assertIsDisplayed()
         val singleLineHeight = bounds("home_date").height
         assertTrue("A disabled agenda must not retain an empty second row", twoLineHeight - singleLineHeight >= eventHeight - 2f)
-        node("home_date_text").performTouchInput { click() }
-        compose.runOnIdle { assertEquals(1, agendaClicks) }
+        compose.runOnIdle { assertEquals(0, agendaClicks) }
         screenshot("home-agenda-disabled-single-line.png")
 
         // No event also produces the same compact layout, even when the calendar is enabled.
         compose.runOnIdle { state = state.copy(settings = state.settings.copy(calendarAgenda = true), events = emptyList()) }
         node("schedule_line").assertDoesNotExist()
+        node("home_date_text").assertDoesNotExist()
         assertEquals(singleLineHeight, bounds("home_date").height, 1f)
     }
 
@@ -261,6 +370,14 @@ class HomeAgendaHeaderTest {
         }
     }
 
+    private fun currentBatteryText(): String {
+        val stickyBattery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level = stickyBattery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = stickyBattery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        assertTrue("The emulator must provide a valid sticky battery reading", level >= 0 && scale > 0)
+        return "${100 * level / scale}%"
+    }
+
     private fun node(tag: String): SemanticsNodeInteraction = compose.onNodeWithTag(tag, useUnmergedTree = true)
 
     private fun bounds(tag: String) = node(tag).fetchSemanticsNode().boundsInRoot
@@ -279,6 +396,16 @@ class HomeAgendaHeaderTest {
             1f,
         )
     }
+
+    private fun scheduleEvent(id: Long, title: String, startsAt: Instant, endsAt: Instant) = ScheduleEvent(
+        id = id,
+        title = title,
+        startsAt = startsAt,
+        endsAt = endsAt,
+        isAllDay = false,
+        location = null,
+        calendarColor = null,
+    )
 
     private fun allDayEvent(title: String): ScheduleEvent {
         val today = LocalDate.now()

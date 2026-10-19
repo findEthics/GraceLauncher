@@ -2,11 +2,16 @@ package com.galaxyrio.gracelauncher.data.media
 
 import android.app.Notification
 import android.app.NotificationManager
+import android.content.pm.LauncherApps
 import android.media.session.MediaSession
 import android.os.Build
+import android.os.Process
+import android.os.UserHandle
+import android.os.UserManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.annotation.MainThread
+import com.galaxyrio.gracelauncher.data.isWorkProfile
 import com.galaxyrio.gracelauncher.data.notifications.appNotifications
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -67,7 +72,11 @@ class MediaNotificationListener : NotificationListenerService() {
         try {
             val notifications = activeNotifications.orEmpty().toList()
             mediaNotifications.connected(notifications)
-            appNotifications.connected(notifications) { key -> runCatching { cancelNotification(key) }.isSuccess }
+            appNotifications.connected(
+                notifications = notifications,
+                resolveWorkProfileSerial = ::resolveWorkProfileSerial,
+                cancelNotification = { key -> runCatching { cancelNotification(key) }.isSuccess },
+            )
             updateAppRanking(currentRanking)
         } catch (_: RuntimeException) {
             mediaNotifications.disconnected()
@@ -93,6 +102,22 @@ class MediaNotificationListener : NotificationListenerService() {
         }
     }
     override fun onListenerDisconnected() { mediaNotifications.disconnected(); appNotifications.disconnected() }
+
+    private fun resolveWorkProfileSerial(user: UserHandle): Long? {
+        if (user == Process.myUserHandle()) return null
+        return runCatching {
+            val launcherApps = getSystemService(LauncherApps::class.java) ?: return null
+            if (user !in launcherApps.profiles) return null
+            val managed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM &&
+                runCatching { launcherApps.getLauncherUserInfo(user)?.userType == UserManager.USER_TYPE_PROFILE_MANAGED }
+                    .getOrDefault(false)
+            if (!isWorkProfile(Build.VERSION.SDK_INT, isCurrentUser = false, isManagedProfile = managed)) return null
+            val userManager = getSystemService(UserManager::class.java) ?: return null
+            if (userManager.isQuietModeEnabled(user) || !userManager.isUserUnlocked(user)) return null
+            userManager.getSerialNumberForUser(user).takeIf { it >= 0 }
+        }.getOrNull()
+    }
+
     override fun onDestroy() {
         mediaNotifications.disconnected()
         appNotifications.disconnected()

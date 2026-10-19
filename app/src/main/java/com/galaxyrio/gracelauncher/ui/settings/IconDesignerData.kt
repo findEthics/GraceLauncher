@@ -29,8 +29,9 @@ import com.galaxyrio.gracelauncher.ui.components.LauncherSymbol
 @Composable
 internal fun IconDesignerData(uiState: LauncherUiState, selectedKeys: Set<String>, enabled: Boolean,
     onSelection: (Set<String>) -> Unit, onEdit: (String) -> Unit, modifier: Modifier = Modifier) {
-    val entries = remember(uiState.itemIcons, uiState.allApps, uiState.shortcutApps, uiState.folders, uiState.settings.privateSpace.exposesApps) {
-        uiState.itemIcons.keys.filterNot { it.startsWith("profile:") && !uiState.settings.privateSpace.exposesApps }
+    val entries = remember(uiState.itemIcons, uiState.allApps, uiState.shortcutApps, uiState.folders,
+        uiState.workProfileSerials, uiState.settings.privateSpace.exposesApps) {
+        uiState.itemIcons.keys.filterNot { uiState.isPrivateProfileItem(it) && !uiState.settings.privateSpace.exposesApps }
             .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { uiState.findItem(it)?.label ?: it })
     }
     val selecting = selectedKeys.isNotEmpty()

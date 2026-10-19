@@ -3,7 +3,6 @@ package com.galaxyrio.gracelauncher.ui.components
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
-import android.app.Activity
 import android.graphics.Color
 import android.os.Build
 import android.os.CancellationSignal
@@ -11,6 +10,7 @@ import android.view.View
 import android.view.ViewTreeObserver
 import android.view.Window
 import android.view.animation.DecelerateInterpolator
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.areStatusBarsVisible
@@ -24,7 +24,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsAnimationControlListenerCompat
@@ -43,7 +42,7 @@ internal fun rememberLauncherSystemBars(
     darkIcons: Boolean,
     allowPullDown: Boolean,
 ): NestedScrollConnection {
-    val window = (LocalContext.current as? Activity)?.window
+    val window = LocalActivity.current?.window
     val view = LocalView.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val bars = remember(window, view) { window?.let { LauncherStatusBar(it, view, autoHide) } }
@@ -97,7 +96,7 @@ private class LauncherStatusBar(window: Window, private val view: View, private 
     private var animationController: WindowInsetsAnimationControllerCompat? = null
     private var animator: ValueAnimator? = null
     private val hideLater = Runnable {
-        if (active && autoHide && view.hasWindowFocus()) setShown(false, animate = true)
+        if (active && autoHide && view.hasWindowFocus()) setShown(false, animate = false)
     }
 
     init {
@@ -168,8 +167,10 @@ private class LauncherStatusBar(window: Window, private val view: View, private 
         val fromAlpha = animationController?.takeIf { it.isReady }?.currentAlpha ?: if (shown) 0f else 1f
         cancelAnimation()
         targetShown = shown
-        if (!animate || Build.VERSION.SDK_INT < 30 || !view.hasWindowFocus() ||
-            ViewCompat.getRootWindowInsets(view)?.isVisible(type) == shown) {
+        val visible = ViewCompat.getRootWindowInsets(view)?.isVisible(type)
+        val controlImmediateHide = !animate && !shown && visible == true
+        if ((!animate && !controlImmediateHide) || Build.VERSION.SDK_INT < 30 ||
+            !view.hasWindowFocus() || visible == shown) {
             applyVisibility(shown)
             return
         }
@@ -177,11 +178,18 @@ private class LauncherStatusBar(window: Window, private val view: View, private 
         request = signal
         val easing = DecelerateInterpolator()
         runCatching {
-            insets.controlWindowInsetsAnimation(type, 220L, easing, signal,
+            insets.controlWindowInsetsAnimation(
+                type, if (animate) 220L else -1L, if (animate) easing else null, signal,
                 object : WindowInsetsAnimationControlListenerCompat {
                     override fun onReady(controller: WindowInsetsAnimationControllerCompat, types: Int) {
-                        if (request !== signal || !active || !controller.isReady) return
+                        if (request !== signal || !active || !view.hasWindowFocus() ||
+                            !controller.isReady) return
                         animationController = controller
+                        if (!animate) {
+                            // hide() uses the platform's default animation; finish commits hidden immediately.
+                            controller.finish(shown)
+                            return
+                        }
                         // Keep the system window in its shown position. Only opacity changes;
                         // finish() applies the final visibility after the fade has completed.
                         controller.setInsetsAndAlpha(controller.shownStateInsets, fromAlpha, 0f)
@@ -189,13 +197,17 @@ private class LauncherStatusBar(window: Window, private val view: View, private 
                             duration = 220L
                             interpolator = easing
                             addUpdateListener {
-                                if (request === signal && controller.isReady) controller.setInsetsAndAlpha(
-                                    controller.shownStateInsets, it.animatedValue as Float, it.animatedFraction,
-                                )
+                                if (request === signal && active && view.hasWindowFocus() && controller.isReady) {
+                                    controller.setInsetsAndAlpha(
+                                        controller.shownStateInsets, it.animatedValue as Float, it.animatedFraction,
+                                    )
+                                }
                             }
                             addListener(object : AnimatorListenerAdapter() {
                                 override fun onAnimationEnd(animation: Animator) {
-                                    if (request === signal && controller.isReady) controller.finish(shown)
+                                    if (request === signal && active && view.hasWindowFocus() && controller.isReady) {
+                                        controller.finish(shown)
+                                    }
                                 }
                             })
                             start()

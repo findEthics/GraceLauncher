@@ -11,8 +11,8 @@ import androidx.compose.ui.unit.dp
 import com.galaxyrio.gracelauncher.R
 
 enum class LauncherSymbol {
-    Star, Info, Hourglass, Category, Delete, Chevron, Settings, Launch, Outbound, Android,
-    Plus, Edit, Apps, Check, Palette, Home, Search, Folder, Clock, Calendar, Weather, Move, Resize, DesignServices, Lock, Encrypted, History2
+    Star, Info, Hourglass, Delete, Chevron, Settings, Launch, Outbound, Android,
+    Plus, Edit, Apps, Check, Palette, Home, Search, Folder, Clock, Calendar, Weather, Move, Resize, DesignServices, Lock, Encrypted, History2, Work
 }
 
 /** Official Material Symbols Outlined: optical size 24, weight 400, grade 0, fill 0. */
@@ -28,7 +28,6 @@ fun LauncherIcon(
                 LauncherSymbol.Star -> R.drawable.ms_star
                 LauncherSymbol.Info -> R.drawable.ms_info
                 LauncherSymbol.Hourglass -> R.drawable.ms_hourglass_empty
-                LauncherSymbol.Category -> R.drawable.ms_category
                 LauncherSymbol.Delete -> R.drawable.ms_delete
                 LauncherSymbol.Chevron -> R.drawable.ms_expand_more
                 LauncherSymbol.Settings -> R.drawable.ms_settings
@@ -52,6 +51,7 @@ fun LauncherIcon(
                 LauncherSymbol.Move -> R.drawable.ms_unfold_more
                 LauncherSymbol.Resize -> R.drawable.ms_crop
                 LauncherSymbol.DesignServices -> R.drawable.ms_design_services
+                LauncherSymbol.Work -> R.drawable.ms_work
             },
         ),
         // These icons decorate parent-labelled actions, which own accessibility semantics.

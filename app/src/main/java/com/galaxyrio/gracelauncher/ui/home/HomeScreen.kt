@@ -33,6 +33,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
@@ -53,9 +54,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTag as semanticsTestTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -66,7 +70,7 @@ import com.galaxyrio.gracelauncher.data.LauncherApp
 import com.galaxyrio.gracelauncher.data.LauncherFolder
 import com.galaxyrio.gracelauncher.data.ScheduleEvent
 import com.galaxyrio.gracelauncher.data.ClockStyle
-import com.galaxyrio.gracelauncher.data.nextVisibleEvent
+import com.galaxyrio.gracelauncher.data.visibleScheduleEvents
 import com.galaxyrio.gracelauncher.data.media.MediaCommand
 import com.galaxyrio.gracelauncher.data.media.NowPlaying
 import com.galaxyrio.gracelauncher.data.media.IdleMediaSessionId
@@ -114,6 +118,7 @@ fun HomeScreen(
     widgetInputEnabled: Boolean = true,
     onTopOffsetChange: (Float) -> Unit = {},
     onWidgetHeightChange: (Int) -> Unit = {},
+    onSearch: (() -> Unit)? = null,
 ) {
     val now by produceState(initialValue = Instant.now()) {
         while (true) {
@@ -121,7 +126,8 @@ fun HomeScreen(
             delay(60_000 - System.currentTimeMillis() % 60_000)
         }
     }
-    val event = if (uiState.settings.calendarAgenda) nextVisibleEvent(uiState.events, now) else null
+    val agendaEvents = if (uiState.settings.calendarAgenda) visibleScheduleEvents(uiState.events, now) else emptyList()
+    val showCalendar = uiState.settings.calendarAgenda && agendaEvents.isNotEmpty()
     val favorites = uiState.favoriteItems
     var idleMediaDismissed by rememberSaveable(uiState.settings.mediaAlwaysVisible, uiState.settings.mediaPlayer) { mutableStateOf(false) }
     LaunchedEffect(uiState.homeMedia?.sessionId, uiState.homeMedia?.revision) {
@@ -141,6 +147,7 @@ fun HomeScreen(
     var headerHeightPx by remember { mutableIntStateOf(0) }
     var anchorOffsetPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
+    val searchActionLabel = stringResource(R.string.search_apps)
     val minimumTop = stableStatusBarInset() + 8.dp
     val bottomInset = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding()
     LaunchedEffect(editingLayout) { if (editingLayout) listState.scrollToItem(0) }
@@ -168,7 +175,10 @@ fun HomeScreen(
         modifier = Modifier.fillMaxSize()
             .overscroll(overscroll)
             .nestedScroll(scrollConnection)
-            .testTag("home_content"),
+            .semantics {
+                semanticsTestTag = "home_content"
+                if (onSearch != null) customActions = listOf(CustomAccessibilityAction(searchActionLabel) { onSearch(); true })
+            },
         // The row's 8dp inset keeps icons aligned at 44dp while giving its
         // rounded touch surface breathing room around the icon.
         contentPadding = PaddingValues(start = LauncherLayout.Start, end = LauncherLayout.End, top = resolvedTop, bottom = 72.dp + bottomInset),
@@ -180,14 +190,14 @@ fun HomeScreen(
         item(key = "date", contentType = "date") {
             HomeClockHeader(
                 now = now,
-                event = event,
+                events = agendaEvents,
                 onDateClick = onDateClick,
                 onClockClick = onClockClick,
                 onLongClick = onWidgetMenu,
                 interactive = !editingLayout,
                 onAnchorOffsetChange = { anchorOffsetPx = it },
                 showClock = uiState.settings.clockEnabled,
-                showCalendar = uiState.settings.calendarAgenda,
+                showCalendar = showCalendar,
                 calendarAboveClock = uiState.settings.calendarAboveClock,
                 clockStyle = uiState.settings.clockStyle,
                 showBattery = uiState.settings.showBatteryPercentage,
@@ -229,7 +239,7 @@ fun HomeScreen(
                 onSwipeRight = { onAppShortcuts(app, it) },
                 gestures = rowGestures,
                 highlighted = highlightedAppKey == app.key,
-                notification = uiState.notifications[app.packageName]?.firstOrNull(),
+                notifications = uiState.notificationsFor(app),
                 showLabel = !uiState.settings.hideFavoriteNames,
             )
         }
@@ -289,7 +299,7 @@ private class HomeOverscrollConnection(private val effect: OverscrollEffect?) : 
 @Composable
 internal fun HomeClockHeader(
     now: Instant,
-    event: ScheduleEvent?,
+    events: List<ScheduleEvent>,
     onDateClick: () -> Unit,
     onClockClick: () -> Unit,
     showBattery: Boolean,
@@ -306,7 +316,7 @@ internal fun HomeClockHeader(
     calendarAboveClock: Boolean = false,
 ) {
     val appearance = LocalLauncherAppearance.current
-    val battery = if (showCalendar && showBattery) rememberBatteryPercent() else null
+    val battery = if (showBattery) rememberBatteryPercent() else null
     val context = LocalContext.current
     val locale = LocalConfiguration.current.locales[0]
     val clockText = formatHomeClock(now, DateFormat.is24HourFormat(context), locale)
@@ -314,6 +324,7 @@ internal fun HomeClockHeader(
     val weekday = SimpleDateFormat("EEE", locale).format(Date.from(now))
     val datePattern = DateFormat.getBestDateTimePattern(locale, if (week) "MMMd" else "MMMEd")
     val dateText = SimpleDateFormat(datePattern, locale).format(Date.from(now))
+    val informationText = if (showCalendar) dateText + (battery?.let { "  $it%" } ?: "") else battery?.let { "$it%" }
     val dateDescription = stringResource(if (weather != null) R.string.weather_agenda_action else R.string.date_calendar_action, dateText)
     val clockDescription = stringResource(R.string.clock_action, clockText)
 
@@ -336,7 +347,7 @@ internal fun HomeClockHeader(
     }
     val calendarContent: @Composable () -> Unit = {
         val shape = LauncherLayout.RowShape
-        if (showCalendar || weather?.temperature != null) Surface(
+        if (informationText != null || weather?.temperature != null) Surface(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag(dateTag)
@@ -373,21 +384,22 @@ internal fun HomeClockHeader(
                         )
                         Text(" · ", modifier = Modifier.alignByBaseline(), color = appearance.text, style = dateStyle)
                     }
-                    if (showCalendar) Text(
-                        text = dateText + (battery?.let { "  $it%" } ?: ""),
-                        modifier = Modifier.weight(1f, fill = false).alignByBaseline().testTag("${dateTag}_text"),
+                    if (informationText != null) Text(
+                        text = informationText,
+                        modifier = Modifier.weight(1f, fill = false).alignByBaseline()
+                            .testTag(if (showCalendar) "${dateTag}_text" else "${dateTag}_battery_text"),
                         color = appearance.text,
                         style = dateStyle,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (weather?.temperature != null) {
-                        if (showCalendar) Spacer(Modifier.width(10.dp))
+                        if (informationText != null) Spacer(Modifier.width(10.dp))
                         HomeWeather(weather, appearance.text, dateStyle, Modifier.alignByBaseline())
                     }
                 }
-                if (showCalendar && event != null) {
-                    ScheduleLine(event = event, now = now)
+                if (showCalendar) events.forEach { event ->
+                    key(event.id, event.startsAt) { ScheduleLine(event = event, now = now) }
                 }
             }
         }

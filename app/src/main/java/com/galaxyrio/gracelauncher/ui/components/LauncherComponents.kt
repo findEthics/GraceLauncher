@@ -113,6 +113,16 @@ fun AppIcon(app: LauncherApp, modifier: Modifier = Modifier, size: Dp = 38.dp, a
                 )
             }
         }
+        if (app.isWorkProfile) {
+            val badgeSize = displaySize * 0.42f
+            val description = stringResource(R.string.work_profile_badge)
+            Box(Modifier.align(Alignment.BottomEnd).size(badgeSize).semantics { contentDescription = description }
+                .testTag("work_indicator:${app.key}")
+                .background(MaterialTheme.colorScheme.surface, CircleShape)
+                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), CircleShape), contentAlignment = Alignment.Center) {
+                LauncherIcon(LauncherSymbol.Work, Modifier.size(badgeSize * 0.72f), MaterialTheme.colorScheme.primary)
+            }
+        }
         if (app.isPrivateSpace && app.showPrivateIndicator) {
             val badgeSize = displaySize * 0.42f
             Box(Modifier.align(Alignment.BottomEnd).size(badgeSize).testTag("private_indicator:${app.key}")
@@ -147,9 +157,17 @@ fun LauncherAppRow(
     onSwipeRight: (Rect) -> Unit = {},
     gestures: AppRowGestures = AppRowGestures(),
     highlighted: Boolean = false,
-    notification: AppNotification? = null,
+    notifications: List<AppNotification> = emptyList(),
     showLabel: Boolean = true,
 ) {
+    val eligibleNotifications = notifications.filter {
+        app.shortcut == null && !app.isPrivateSpace &&
+            (app.isWorkProfile || app.user == null && app.userSerial == null) &&
+            it.packageName == app.packageName && it.userSerial == app.userSerial
+    }.sortedByDescending(AppNotification::postedAt)
+    val dismissNotifications = gestures.onDismissNotifications
+        ?.takeIf { eligibleNotifications.any { notification -> notification.canDismiss } }
+        ?.let { dismiss -> { dismiss(app) } }
     LauncherRow(
         rowKey = "app:${app.key}",
         label = app.label,
@@ -159,11 +177,12 @@ fun LauncherAppRow(
         onPrepare = { gestures.onPrepare(app) },
         onDrag = { bounds, expanded -> gestures.onDrag(app, bounds, expanded) },
         onDragEnd = gestures.onDragEnd,
+        onDismissNotifications = dismissNotifications,
         openDescription = stringResource(R.string.app_shortcuts),
         detailsDescription = stringResource(R.string.app_actions),
         modifier = modifier,
         highlighted = highlighted,
-        notification = notification.takeIf { app.shortcut == null && !app.isPrivateSpace },
+        notifications = eligibleNotifications.take(3),
         showLabel = showLabel,
     ) { iconModifier -> AppIcon(app, modifier = iconModifier, size = 40.dp) }
 }
@@ -213,20 +232,23 @@ private fun LauncherRow(
     onPrepare: () -> Unit,
     onDrag: (Rect, Boolean) -> Unit,
     onDragEnd: (Boolean) -> Unit,
+    onDismissNotifications: (() -> Unit)? = null,
     openDescription: String,
     detailsDescription: String,
     modifier: Modifier,
     highlighted: Boolean,
-    notification: AppNotification? = null,
+    notifications: List<AppNotification> = emptyList(),
     showLabel: Boolean = true,
     trailing: (@Composable () -> Unit)? = null,
     icon: @Composable (Modifier) -> Unit,
 ) {
     val appearance = LocalLauncherAppearance.current
     val inputEnabled = LocalLauncherInputEnabled.current
+    val dismissNotificationsDescription = stringResource(R.string.notification_dismiss_all)
     val currentPrepare by rememberUpdatedState(onPrepare)
     val currentDrag by rememberUpdatedState(onDrag)
     val currentDragEnd by rememberUpdatedState(onDragEnd)
+    val currentDismissNotifications by rememberUpdatedState(onDismissNotifications)
     var bounds by remember { mutableStateOf(Rect.Zero) }
     var iconBounds by remember { mutableStateOf(Rect.Zero) }
     val interactionSource = remember { MutableInteractionSource() }
@@ -252,9 +274,9 @@ private fun LauncherRow(
                     currentPrepare()
                 }
             }
-            .pointerInput(rowKey, inputEnabled) {
+            .pointerInput(rowKey, inputEnabled, onDismissNotifications != null) {
                 if (!inputEnabled) return@pointerInput
-                val swipe = PopupSwipeIntent(reversalSlop = 8.dp.toPx())
+                val swipe = PopupSwipeIntent(reversalSlop = 8.dp.toPx(), dismissOnLeft = onDismissNotifications != null)
                 detectHorizontalDragGestures(
                     onDragStart = { swipe.reset() },
                     onDragCancel = {
@@ -262,7 +284,8 @@ private fun LauncherRow(
                         swipe.reset()
                     },
                     onDragEnd = {
-                        if (swipe.revealed) currentDragEnd(swipe.expanded)
+                        if (swipe.dismissOnCommit) currentDismissNotifications?.invoke()
+                        else if (swipe.revealed) currentDragEnd(swipe.expanded)
                         swipe.reset()
                     },
                 ) { change, amount ->
@@ -280,6 +303,9 @@ private fun LauncherRow(
                 customActions = buildList {
                     add(CustomAccessibilityAction(openDescription) { onOpen(iconBounds); true })
                     if (onLongClick != null) add(CustomAccessibilityAction(detailsDescription) { onLongClick(); true })
+                    if (inputEnabled && onDismissNotifications != null) add(CustomAccessibilityAction(
+                        dismissNotificationsDescription,
+                    ) { onDismissNotifications(); true })
                 }
             }
             .combinedClickable(
@@ -295,7 +321,7 @@ private fun LauncherRow(
         Spacer(Modifier.width(LauncherLayout.IconLabelGap))
         Column(Modifier.weight(1f)) {
             if (showLabel) Text(
-                text = label + (notification?.let { " · ${notificationAge(it.postedAt)}" } ?: ""),
+                text = label + (notifications.firstOrNull()?.let { " · ${notificationAge(it.postedAt)}" } ?: ""),
                 modifier = Modifier.testTag("$rowKey:label"),
                 style = MaterialTheme.typography.bodyLarge.merge(
                     TextStyle(fontWeight = FontWeight.Normal, letterSpacing = 0.2.sp, shadow = appearance.textShadow),
@@ -304,17 +330,28 @@ private fun LauncherRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (notification != null) {
+            if (notifications.isNotEmpty()) {
                 if (showLabel) Spacer(Modifier.height(2.dp))
-                listOf(notification.title, notification.text.replace('\n', ' ')).filter { it.isNotBlank() }.forEach { line ->
-                    Text(line, color = appearance.text.copy(alpha = 0.88f),
-                        style = MaterialTheme.typography.bodyMedium.copy(shadow = appearance.textShadow),
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                notifications.forEach { notification ->
+                    val firstBodyLine = notification.text.lineSequence().firstOrNull { it.isNotBlank() }
+                    val showTitle = notification.title.isNotBlank() &&
+                        firstBodyLine?.startsWith("${notification.title}:") != true
+                    if (showTitle) {
+                        Text(notification.title, color = appearance.text.copy(alpha = 0.88f),
+                            style = MaterialTheme.typography.bodyMedium.copy(shadow = appearance.textShadow),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    notification.text.lineSequence().filter { it.isNotBlank() }
+                        .take(if (showTitle) 2 else 3).forEach { line ->
+                            Text(line, color = appearance.text.copy(alpha = 0.88f),
+                                style = MaterialTheme.typography.bodyMedium.copy(shadow = appearance.textShadow),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                 }
             }
         }
         trailing?.invoke()
-        if (notification != null) {
+        if (notifications.isNotEmpty()) {
             IconButton(
                 onClick = { onPrepare(); onOpen(iconBounds) },
                 enabled = inputEnabled,
@@ -334,4 +371,5 @@ data class AppRowGestures(
     val onDrag: (LauncherApp, Rect, Boolean) -> Unit = { _, _, _ -> },
     val onDragEnd: (Boolean) -> Unit = {},
     val onLaunchAt: ((LauncherApp, Rect) -> Unit)? = null,
+    val onDismissNotifications: ((LauncherApp) -> Unit)? = null,
 )

@@ -88,6 +88,11 @@ fun ShortcutPopup(
         item.shortcut?.let { actions.launchShortcutAt?.invoke(it, bounds) ?: actions.launchShortcut(it) }
     },
 ) {
+    var acceptedNotificationDismissal by remember(app.key) { mutableStateOf(false) }
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
+    LaunchedEffect(acceptedNotificationDismissal, notifications.isEmpty()) {
+        if (acceptedNotificationDismissal && notifications.isEmpty()) currentOnDismiss()
+    }
     val isFolder = app.folderId != null
     val isPrivateFolder = app.folderId == PrivateSpaceFolderId
     var retry by remember { mutableIntStateOf(0) }
@@ -128,7 +133,12 @@ fun ShortcutPopup(
                 NotificationPopupItem(
                     app, notification,
                     onOpen = { if (actions.openNotification(notification.key, notification.revision)) onDismiss() },
-                    onDismiss = { actions.dismissNotification(notification.key, notification.revision) },
+                    onDismiss = {
+                        actions.dismissNotification(notification.key, notification.revision).also { accepted ->
+                            if (accepted) acceptedNotificationDismissal = true
+                        }
+                    },
+                    onReply = actions.replyNotification,
                     modifier = Modifier.animateItem(),
                     gesturesEnabled = !reveal.dragging && reveal.expanded,
                 )
@@ -238,7 +248,7 @@ internal fun SwipeRevealPanel(
         if (!reveal.dragging && !reveal.expanded && !spatial.isRunning && spatial.value == 0f) currentOnDismiss()
     }
     var origin by remember { mutableStateOf(Offset.Zero) }
-    Box(Modifier.fillMaxSize().onGloballyPositioned { origin = it.boundsInWindow().topLeft }) {
+    Box(Modifier.fillMaxSize().imePadding().onGloballyPositioned { origin = it.boundsInWindow().topLeft }) {
         Box(Modifier.matchParentSize().clickable(
             interactionSource = remember { MutableInteractionSource() }, indication = null,
             onClick = { reveal.expanded = false },
@@ -246,21 +256,19 @@ internal fun SwipeRevealPanel(
         Layout(
             modifier = Modifier.fillMaxSize(),
             content = {
-                LauncherPanelTheme {
-                    Surface(
-                        modifier = Modifier.testTag(panelTag).semantics {
-                            paneTitle = title
-                            dismiss { reveal.expanded = false; true }
-                            progressBarRangeInfo = ProgressBarRangeInfo(spatial.value.coerceIn(0f, 1f), 0f..1f)
-                        }.graphicsLayer { alpha = (spatial.value * 12f).coerceIn(0f, 1f) },
-                        shape = PopupContainerShape(anchor, spatial.value),
-                        color = MaterialTheme.colorScheme.surface,
-                        shadowElevation = 16.dp * spatial.value.coerceIn(0f, 1f),
-                    ) {}
-                    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-                        Column(Modifier.padding(horizontal = 6.dp, vertical = 12.dp)) {
-                            content(maxListHeight)
-                        }
+                Surface(
+                    modifier = Modifier.testTag(panelTag).semantics {
+                        paneTitle = title
+                        dismiss { reveal.expanded = false; true }
+                        progressBarRangeInfo = ProgressBarRangeInfo(spatial.value.coerceIn(0f, 1f), 0f..1f)
+                    }.graphicsLayer { alpha = (spatial.value * 12f).coerceIn(0f, 1f) },
+                    shape = PopupContainerShape(anchor, spatial.value),
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 16.dp * spatial.value.coerceIn(0f, 1f),
+                ) {}
+                CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+                    Column(Modifier.padding(horizontal = 6.dp, vertical = 12.dp)) {
+                        content(maxListHeight)
                     }
                 }
             },

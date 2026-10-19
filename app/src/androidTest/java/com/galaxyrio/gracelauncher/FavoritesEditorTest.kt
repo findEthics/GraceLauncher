@@ -53,7 +53,15 @@ class FavoritesEditorTest {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
                     if (wholeLauncher) LauncherScreen(state, onDateClick = {}, onClockClick = {}, onLaunchApp = {},
                         onToggleFavorite = toggle, actions = LauncherActions(reorderFavorites = reorder))
-                    else Box(Modifier.fillMaxSize()) { FavoritesScreen(state, toggle, reorder, onDone = {}) }
+                    else Box(Modifier.fillMaxSize()) {
+                        FavoritesScreen(
+                            uiState = state,
+                            actions = LauncherActions(reorderFavorites = reorder),
+                            onToggle = toggle,
+                            onReorder = reorder,
+                            onDone = {},
+                        )
+                    }
                 }
             }
         }

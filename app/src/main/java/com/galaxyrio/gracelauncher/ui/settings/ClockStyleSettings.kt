@@ -325,7 +325,7 @@ private fun ClockStylePreview(
         CompositionLocalProvider(LocalLauncherAppearance provides appearance) {
           MaterialTheme(typography = LocalLauncherTypography.current) {
             HomeClockHeader(
-                now = now, event = null, onDateClick = {}, onClockClick = {},
+                now = now, events = emptyList(), onDateClick = {}, onClockClick = {},
                 showBattery = uiState.settings.showBatteryPercentage, clockStyle = style,
                 weather = uiState.weather.snapshot?.current.takeIf {
                     uiState.settings.weatherEnabled && !uiState.isLoadingSettings && !uiState.settingsLoadFailed
