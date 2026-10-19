@@ -98,11 +98,12 @@ only the "<contact-name>: <message>" should be displayed (Me: t31 in this case)
 
 ## Validation and release status
 
-Signed-release smoke (2026-10-19; current pre-commit worktree):
+Signed-release smoke and final artifact (2026-10-19):
 - `:app:testDebugUnitTest :app:assembleRelease` passed: **94/94 JVM tests**, no failures/errors/skips; optimized release build succeeded.
-- Candidate: `app/build/outputs/apk/release/app-release-smoke.apk`; **1.2.6 / code 14**, 58,999,490 bytes, SHA-256 `88a9a135cfe72b981ac95e46588c93f870ece99f54b319e8f86c897ebf651f65`. Signature verifies against `7c928de3824f4c6d91056d5e5615c5cb5414fece82643c0930c0ca600f583a0b`; 16 KB ZIP alignment and package metadata pass.
-- Exact signed candidate installed on API 36 `emulator-5580`. Its verified Gemma4 model (`181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c`) was saved outside app data and restored after the user-approved full package reinstall. The assistant was enabled; a plain non-action chat prompt produced a nonempty reply bubble. Raw model output was not recorded. The app's prior preferences/data were cleared by reinstall; the model was restored and the smoke-test app remains installed.
-- This verifies the signed R8 ordinary-chat path only. No native action was dispatched; alarm creation/ringing, the full action matrix, and physical Titan/GPU behavior remain unverified. The source commit and final post-push artifact hash will be recorded after commit/push.
+- Pre-commit smoke candidate: `app/build/outputs/apk/release/app-release-smoke.apk`; **1.2.6 / code 14**, 58,999,490 bytes, SHA-256 `88a9a135cfe72b981ac95e46588c93f870ece99f54b319e8f86c897ebf651f65`. Signature verifies against `7c928de3824f4c6d91056d5e5615c5cb5414fece82643c0930c0ca600f583a0b`; 16 KB ZIP alignment and package metadata pass.
+- Final artifact built with `:app:assembleRelease --rerun-tasks` after push from source commit `f80e7ee3fdfb8233af54fec3a080658a99feb4c2`: `app/build/outputs/apk/release/app-release.apk`, **1.2.6 / code 14**, 58,999,490 bytes, SHA-256 `e4ba273a7f3ac3d36291c793786419371a326121c23fbcebd46ebc4bd56e50f7`. V3 signature and 16 KB ZIP alignment verify; package is `com.galaxyrio.gracelauncher`, non-debuggable, with certificate SHA-256 `7c928de3824f4c6d91056d5e5615c5cb5414fece82643c0930c0ca600f583a0b`.
+- The exact pre-commit candidate was smoke-tested on API 36 `emulator-5580`; after push, the final artifact update-installed with the same signer and the ordinary-chat smoke passed again. The verified Gemma4 model (`181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c`) was restored after the user-approved full package reinstall; no model data was lost. The reinstall cleared prior app preferences/data; the assistant was enabled again. Raw model output was not recorded.
+- This verifies the signed R8 ordinary-chat path only. No native action was dispatched; alarm creation/ringing, the full action matrix, and physical Titan/GPU behavior remain unverified. APKs are local build outputs, not committed.
 
 Delete-only audit cleanup (2026-10-19):
 - Dead-symbol/string reference checks and `git diff --check` passed. Only approved deletions and this task bookkeeping were applied; screenshot/schema/dialog/icon-resolution simplifications and all ten legacy launcher PNGs remain unchanged.
