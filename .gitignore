@@ -2,7 +2,8 @@
 .gradle
 .kotlin/
 local.properties
-
+voice-assistant
+.env
 # Keep shared IDE formatting and inspections, not generated or machine-local state.
 /.idea/*
 !/.idea/codeStyles/
@@ -15,6 +16,12 @@ local.properties
 
 # Local maintainer notes and submission drafts
 /.local/
+/tasks-2.md
+
+# Local model-training artifacts
+/app/dataset/
+/app/export_metadata.json
+/app/unsloth_gemma-3-270m-it_1787060144.Q4_K_M.gguf
 
 # Local release artifacts and signing secrets
 /app/release/
