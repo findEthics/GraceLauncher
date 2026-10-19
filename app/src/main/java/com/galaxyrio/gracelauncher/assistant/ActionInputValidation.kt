@@ -83,13 +83,14 @@ internal object ActionInputValidation {
     return runCatching { LocalTime.parse(input, localTimeFormatter) }.getOrNull()
   }
 
-  /** Bare/today alarms must be ahead today; tomorrow is valid only after that time passes today. */
+  /** Dayless past alarms roll to tomorrow; explicit days must match Clock's next occurrence. */
   fun alarmOccurrence(time: LocalTime, now: LocalDateTime, prompt: String): LocalDateTime? {
     val text = normalizeNumbers(prompt)
     if (unsupportedDateMention.containsMatchIn(text)) return null
-    if (Regex("\\b(?:today|tomorrow)\\b").findAll(text).count() > 1) return null
-    val tomorrow = Regex("\\btomorrow\\b").containsMatchIn(text)
+    val days = calendarDayMention.findAll(text).toList()
+    if (days.size > 1) return null
     val todayOccurrence = now.toLocalDate().atTime(time)
+    val tomorrow = days.singleOrNull()?.value == "tomorrow" || (days.isEmpty() && todayOccurrence.isBefore(now))
     return if (tomorrow) {
       todayOccurrence.takeIf { it.isBefore(now) }?.plusDays(1)
     } else {

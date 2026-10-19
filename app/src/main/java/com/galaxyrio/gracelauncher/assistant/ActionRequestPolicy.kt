@@ -100,7 +100,7 @@ internal object ActionRequestPolicy {
                 val spoken = ActionInputValidation.parseSpokenClockTime(request)
                 need(given != null && given == spoken, "Say an explicit alarm time that matches. No alarm was set.")
                 need(ActionInputValidation.alarmOccurrence(given!!, now, request) != null,
-                    "Alarms are only for a time ahead today, or tomorrow after that time passed today. No alarm was set.")
+                    "Without a day, alarms use the next occurrence. An explicit day must match that occurrence. No alarm was set.")
                 groundedLabel(a.getValue("label"), text)
             }
             "callContact" -> {

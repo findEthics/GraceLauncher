@@ -4,7 +4,6 @@ import android.Manifest
 import android.app.Application
 import android.content.BroadcastReceiver
 import android.content.Context
-import android.net.Uri
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.LauncherApps
@@ -681,18 +680,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 !itemsRepository.isImageReferenced(previous.source)) itemIcons.deleteImage(previous)
             true
         } catch (error: Exception) {
-            if (error is CancellationException) throw error
-            false
-        }
-    }
-
-    suspend fun importItemIcon(app: LauncherApp, uri: Uri): Boolean {
-        var imported: ItemIcon? = null
-        return try {
-            imported = itemIcons.importImage(uri)
-            setItemIcon(app, imported).also { if (!it) itemIcons.deleteImage(imported) }
-        } catch (error: Exception) {
-            itemIcons.deleteImage(imported)
             if (error is CancellationException) throw error
             false
         }

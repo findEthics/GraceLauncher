@@ -137,11 +137,20 @@ internal fun AssistantChatWindow(
                         },
                     shape = RoundedCornerShape(28.dp), maxLines = 5,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }),
+                    trailingIcon = {
+                        if (busy) IconButton(
+                            onClick = onStop,
+                            enabled = canCancel,
+                            modifier = Modifier.testTag("assistant_stop"),
+                        ) {
+                            Icon(
+                                painterResource(R.drawable.ic_stop_filled),
+                                contentDescription = stringResource(R.string.assistant_stop),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
                 )
-                if (busy) {
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = onStop, enabled = canCancel, modifier = Modifier.testTag("assistant_stop")) { Text(stringResource(R.string.assistant_stop)) }
-                }
             }
         }
     }

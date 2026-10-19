@@ -23,12 +23,6 @@ internal data class ContactNameCandidate(val id: Long, val displayName: String)
 
 internal data class ContactPhoneCandidate(val number: String, val label: String)
 
-internal sealed interface ContactMatch {
-  data class Found(val contact: ContactNameCandidate) : ContactMatch
-
-  data class Failure(val message: String) : ContactMatch
-}
-
 internal sealed interface PhoneMatch {
   data class Found(val number: ContactPhoneCandidate) : PhoneMatch
 
@@ -38,17 +32,6 @@ internal sealed interface PhoneMatch {
 internal object ContactCallResolver {
   private val whitespace = Regex("\\s+")
   private val allowedPhoneCharacters = Regex("\\+?[0-9 .()\\-]+")
-
-  fun findUniqueContact(requestedName: String, candidates: List<ContactNameCandidate>): ContactMatch {
-    val normalizedName = normalizeDisplayName(requestedName)
-    if (normalizedName.isEmpty()) return ContactMatch.Failure("Provide the contact's saved display name.")
-    val matches = candidates.filter { normalizeDisplayName(it.displayName) == normalizedName }
-    return when (matches.size) {
-      0 -> ContactMatch.Failure("No contact exactly matches '$requestedName'.")
-      1 -> ContactMatch.Found(matches.single())
-      else -> ContactMatch.Failure("More than one contact matches '$requestedName'. Use a unique display name.")
-    }
-  }
 
   fun choosePhone(
     contactName: String,

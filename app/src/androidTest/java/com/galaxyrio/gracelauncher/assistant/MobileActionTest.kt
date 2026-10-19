@@ -138,6 +138,15 @@ class MobileActionTest {
         assertEquals("Alarm requested from Clock; not confirmed set.",
             MobileActionExecutor.execute(capturingContext, alarm, "alarm 10:30pm", now))
         assertEquals(1, launches) // Captured only; never starts Clock or schedules a real alarm.
+        launches = 0
+        val afterAlarmTime = now.withHour(23)
+        assertEquals("Alarm requested from Clock; not confirmed set.",
+            MobileActionExecutor.execute(capturingContext, alarm, "alarm 10:30pm", afterAlarmTime))
+        assertEquals(1, launches) // A dayless past time reaches the same next-occurrence Clock intent.
+        launches = 0
+        assertTrue(MobileActionExecutor.execute(capturingContext, alarm, "alarm 10:30pm today", afterAlarmTime)
+            .startsWith("Action not performed:"))
+        assertEquals(0, launches)
         val call = MobileAction("callContact", mapOf("contactName" to "John", "phoneLabel" to ""))
         rejects { MobileActionExecutor.validateRequest(call, "call John Smith", now) }
         assertNull(MobileActionExecutor.intentFor(call))
@@ -184,9 +193,9 @@ class MobileActionTest {
             tools.sendEmail("person@example.com", "Subject", "Body"),
             tools.showLocationOnMap("London"), tools.openWifiSettings(),
             tools.createCalendarEvent("2026-07-01T10:00:00", "Meeting"),
-            tools.createTimer("5 minutes", ""), tools.createAlarm("22:30", ""), tools.callContact("Ada Lovelace", ""),
+            tools.createTimer("5 minutes", ""), tools.callContact("Ada Lovelace", ""),
         )
-        assertEquals(listOf("turnOnFlashlight", "turnOffFlashlight", "createContact", "sendEmail", "showLocationOnMap", "openWifiSettings", "createCalendarEvent", "createTimer", "createAlarm", "callContact"), queued.map { it.name })
+        assertEquals(listOf("turnOnFlashlight", "turnOffFlashlight", "createContact", "sendEmail", "showLocationOnMap", "openWifiSettings", "createCalendarEvent", "createTimer", "callContact"), queued.map { it.name })
         results.forEach { assertEquals(mapOf("result" to "queued"), it) }
         assertTrue(queued[0].needsCamera)
         assertTrue(queued[1].needsCamera)

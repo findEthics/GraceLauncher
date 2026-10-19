@@ -16,7 +16,6 @@
     <string name="private_space_title">Private space</string>
     <string name="private_space_summary">A protected space for your private apps</string>
     <string name="private_space_enable">Enable Private space</string>
-    <string name="private_space_enable_summary">Show Private space at the bottom of Folders in the app list</string>
     <string name="private_space_password">Password protection</string>
     <string name="private_space_password_summary">Verify with fingerprint or a system password when opening. Android may also require the Private space password.</string>
     <string name="private_space_display">Display as</string>
@@ -42,7 +41,6 @@
     <string name="private_space_verify_title">Verify it’s you</string>
     <string name="private_space_security_required">Set a device screen lock to enable password protection</string>
     <string name="private_space_unlock_edit">Unlock to edit</string>
-    <string name="private_space_lock">Lock Private space</string>
     <!-- Core -->
     <string name="app_name">Grace Launcher</string>
     <string name="alphabet_scroller">Alphabet quick scroll</string>
@@ -78,15 +76,12 @@
     <string name="edit_favorites">Edit favorites</string>
     <string name="app_info">App info</string>
     <string name="screen_time">Screen time</string>
-    <string name="add_to_category">Add to category</string>
     <string name="uninstall">Uninstall</string>
     <string name="advanced">Advanced</string>
     <string name="rename_app">Rename app</string>
     <string name="rename_folder">Rename folder</string>
     <string name="folder_contents_empty">Choose apps or widgets for this folder.</string>
     <string name="folder_unavailable">This folder is not available.</string>
-    <string name="edit_icon">Edit icon</string>
-    <string name="icon_edit_default">Default</string>
     <string name="icon_edit_follow_theme">Follow icon theme</string>
     <string name="icon_edit_image">Custom image</string>
     <string name="icon_edit_search">Search icons</string>
@@ -109,15 +104,6 @@
     <string name="save">Save</string>
     <string name="cancel">Cancel</string>
     <string name="reset">Reset</string>
-    <string name="new_category">New category</string>
-    <string name="remove_category">Remove from category</string>
-    <string name="categories">Categories</string>
-    <string name="wallpaper_text">Wallpaper text</string>
-    <string name="text_auto">Automatic</string>
-    <string name="text_light">Light</string>
-    <string name="text_dark">Dark</string>
-    <string name="themed_icons">Themed icons</string>
-    <string name="themed_icons_description">For apps with a monochrome icon</string>
     <string name="your_agenda">Your agenda</string>
     <string name="today">today</string>
     <string name="new_event">New event</string>
@@ -147,8 +133,6 @@
     <!-- Folders -->
     <string name="open_folder">Open folder</string>
     <string name="folder_actions">Folder actions</string>
-    <string name="edit_folder">Edit folder</string>
-    <string name="empty_folder">No apps in this folder</string>
 
     <!-- Notifications -->
     <string name="notification_dismiss">Dismiss</string>
@@ -221,7 +205,6 @@
     <string name="settings_folder_create">Create folder</string>
     <string name="settings_folder_edit">Edit folder</string>
     <string name="settings_folder_name">Folder name</string>
-    <string name="settings_folder_members">Apps in this folder</string>
     <string name="settings_folder_placement">Show folder in</string>
     <string name="settings_folder_favorites">Favorites</string>
     <string name="settings_folder_app_list">App list</string>
@@ -238,15 +221,11 @@
         <item quantity="one">%1$d selected</item>
         <item quantity="other">%1$d selected</item>
     </plurals>
-    <string name="settings_search_apps">Search apps</string>
-    <string name="settings_no_apps">No matching apps</string>
     <string name="settings_save">Save</string>
     <string name="settings_cancel">Cancel</string>
     <string name="settings_delete">Delete</string>
-    <string name="settings_add_widget">Add widget</string>
     <string name="settings_move_widget">Move widget</string>
     <string name="settings_show_battery">Show battery percentage</string>
-    <string name="settings_show_battery_summary">Show the battery level beside the date</string>
     <string name="settings_allow_haptics">Allow haptic feedback</string>
     <string name="settings_allow_haptics_summary">Follow the system haptic feedback setting</string>
     <string name="settings_theme_section">Color and theme</string>
@@ -276,7 +255,6 @@
     <string name="settings_text_auto">Automatic</string>
     <string name="settings_text_light">Light text</string>
     <string name="settings_text_dark">Dark text</string>
-    <string name="settings_themed_icons">Themed icons</string>
     <string name="settings_themed_icons_summary">Use available monochrome icons</string>
     <string name="settings_misc">Misc</string>
     <string name="settings_hide_status_bar">Hide status bar</string>
@@ -364,7 +342,6 @@
     <string name="icon_designer_hue">Hue</string>
     <string name="icon_designer_hex">Hex color</string>
     <string name="icon_designer_color_presets">Color presets</string>
-    <string name="icon_pack_description">Icons use enabled packs in order, then system icons. Per-app designs take priority.</string>
     <string name="icon_pack_empty">No icon packs installed. Install one, then return here.</string>
     <string name="icon_pack_unavailable">Icon pack unavailable · using system icons</string>
     <string name="icon_pack_missing">%1$s is unavailable. Other enabled packs or system icons will be used.</string>
@@ -374,8 +351,6 @@
     <string name="weather_settings_enabled_summary">Home screen and agenda · Breezy Weather</string>
     <string name="weather_settings_disabled_summary">Optional · requires Breezy Weather</string>
     <string name="weather_settings_enable">Show weather</string>
-    <string name="weather_settings_enable_summary">Show weather beside the date and in your agenda.</string>
-    <string name="weather_settings_about">Built-in weather uses the locations and forecasts saved in Breezy Weather. Allow access to share that data with Grace Launcher.</string>
     <string name="weather_settings_connection">Breezy Weather</string>
     <string name="weather_settings_disabled">Turn on weather to connect to Breezy Weather.</string>
     <string name="weather_settings_loading">Checking Breezy Weather…</string>
@@ -455,7 +430,6 @@
 
     <!-- Clock style -->
     <string name="clock_style_apply">Apply</string>
-    <string name="clock_layout">Clock layout</string>
     <string name="clock_single_line">Single line</string>
     <string name="clock_two_lines">Two lines</string>
     <string name="clock_week" translatable="false">Week</string>
@@ -548,22 +522,17 @@
     <string name="assistant_privacy">Chat and inference stay on this device. Conversations are kept only in memory and cleared when closed. Downloads require internet; there is no cloud fallback. Your keyboard and external apps may have their own network features.</string>
     <string name="assistant_enable">Enable chat assistant on Home</string>
     <string name="assistant_show_home_button">Show chat button on Home</string>
-    <string name="assistant_show_home_button_hint">When hidden, use ! or @ on the Home keyboard to open chat. The assistant must remain enabled.</string>
+    <string name="assistant_show_home_button_hint">When hidden, use Space, !, or @ on the Home keyboard to open chat. The assistant must remain enabled.</string>
     <string name="assistant_open_chat">Open chat assistant</string>
-    <string name="assistant_chat_hint">On Home, @ opens chat without adding text; ! opens action input. Chat normally, or start one complete English action with !. Enter or keyboard Send submits; Shift+Enter adds a line. Actions must be single-line. Back closes and clears chat.</string>
+    <string name="assistant_chat_hint">On Home, Space or @ opens chat without adding text; ! opens action input. Chat normally, or start one complete English action with !. Enter or keyboard Send submits; Shift+Enter adds a line. Actions must be single-line. Back closes and clears chat.</string>
     <string name="assistant_message">Message</string>
     <string name="assistant_stop">Stop</string>
     <string name="assistant_action_result">Action result</string>
-    <string name="assistant_processing">Processing locally…</string>
+    <string name="assistant_processing">...</string>
     <string name="assistant_context_rolled">Older messages are no longer in the model context. Nothing is saved.</string>
     <string name="assistant_cancel">Cancel</string>
-    <string name="assistant_confirm">Review action</string>
-    <string name="assistant_continue">Continue</string>
     <string name="assistant_ready">Verified and ready</string>
-    <string name="assistant_token">Hugging Face token (download only; accept model license first)</string>
-    <string name="assistant_token_show">Show</string>
-    <string name="assistant_token_hide">Hide</string>
     <string name="assistant_download">Download model</string>
     <string name="assistant_delete">Delete model</string>
-    <string name="assistant_direct_actions">Prefix with ! to execute without confirmation: flashlight, timer, alarm, saved-contact calls, device-local contacts and calendar events. Opens email drafts, maps and Wi-Fi settings. Alarms need an explicit time ahead today; if it already passed, say tomorrow (for example, !alarm 7am tomorrow). Ambiguous requests fail without action. External apps may use internet.</string>
+    <string name="assistant_direct_actions">Prefix with ! to execute without confirmation: flashlight, timer, alarm, saved-contact calls, device-local contacts and calendar events. Opens email drafts, maps and Wi-Fi settings. Alarms need an explicit time. Without a day, the next occurrence is used: today if still ahead, otherwise tomorrow (for example, !wake me up at 7am). An explicit day must match that next occurrence. Ambiguous requests fail without action. External apps may use internet.</string>
 </resources>

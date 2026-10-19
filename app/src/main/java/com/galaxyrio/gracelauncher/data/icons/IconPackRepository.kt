@@ -167,9 +167,6 @@ internal class LoadedIconPack(
     }
 
     @Synchronized
-    fun designDrawable(name: String): Drawable? = drawable(name)
-
-    @Synchronized
     fun designDrawableFor(component: ComponentName): Drawable? =
         definition.candidates(component.flattenToString(), LocalDate.now().dayOfMonth).firstNotNullOfOrNull(::drawable)
 

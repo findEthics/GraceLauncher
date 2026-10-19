@@ -398,7 +398,6 @@ fun LauncherRoute(
         },
         rename = viewModel::renameApp,
         setItemIcon = viewModel::setItemIcon,
-        importItemIcon = viewModel::importItemIcon,
         showShortcutInAppList = viewModel::showShortcutInAppList,
         rememberShortcut = viewModel::rememberShortcut,
         updatePopup = viewModel::updatePopup,

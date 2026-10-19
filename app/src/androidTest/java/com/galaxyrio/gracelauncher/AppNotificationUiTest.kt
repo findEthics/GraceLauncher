@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.text.AnnotatedString
@@ -644,6 +645,41 @@ class AppNotificationUiTest {
             assertEquals(listOf(Triple(message.key, message.revision, "Hello there")), replies)
             assertTrue(opened.isEmpty()); assertTrue(dismissed.isEmpty())
             assertEquals(message.key, notifications.single().key)
+        }
+    }
+
+    @Test fun replyEnterSendsShiftEnterAddsNewlineAndImeSendUsesSameCallback() {
+        notifications = listOf(message.copy(canReply = true))
+        show()
+        compose.onNodeWithTag("notification_arrow:app:${app.key}").performClick()
+        compose.onNodeWithTag("notification_reply_button:${message.key}").performClick()
+
+        val input = compose.onNodeWithTag("notification_reply_input:${message.key}")
+        input.performTextInput("first reply")
+        input.performKeyInput { pressKey(Key.Enter) }
+        compose.onNodeWithTag("notification_reply_input:${message.key}").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(listOf(Triple(message.key, message.revision, "first reply")), replies) }
+
+        compose.onNodeWithTag("notification_reply_button:${message.key}").performClick()
+        val multiline = compose.onNodeWithTag("notification_reply_input:${message.key}")
+        multiline.performTextInput("line one")
+        multiline.performKeyInput {
+            keyDown(Key.ShiftLeft)
+            pressKey(Key.Enter)
+            keyUp(Key.ShiftLeft)
+        }
+        multiline.assertEditableTextEquals("line one\n")
+        multiline.performTextInput("line two")
+        multiline.performImeAction()
+        compose.onNodeWithTag("notification_reply_input:${message.key}").assertDoesNotExist()
+        compose.runOnIdle {
+            assertEquals(
+                listOf(
+                    Triple(message.key, message.revision, "first reply"),
+                    Triple(message.key, message.revision, "line one\nline two"),
+                ),
+                replies,
+            )
         }
     }
 

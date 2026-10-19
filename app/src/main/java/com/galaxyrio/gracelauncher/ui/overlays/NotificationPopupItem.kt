@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,6 +17,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -22,6 +25,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
@@ -53,7 +59,7 @@ internal fun NotificationPopupItem(
         }
     }
     var replyRevision by remember(notification.key) { mutableStateOf<Long?>(null) }
-    var draft by remember(notification.key) { mutableStateOf("") }
+    var draft by remember(notification.key) { mutableStateOf(TextFieldValue()) }
     var replyResult by remember(notification.key) { mutableStateOf<NotificationReplyResult?>(null) }
     var sending by remember(notification.key) { mutableStateOf(false) }
     val editingReply = replyRevision != null
@@ -72,16 +78,16 @@ internal fun NotificationPopupItem(
     }
     val closeReply: () -> Unit = {
         replyRevision = null
-        draft = ""
+        draft = TextFieldValue()
         replyResult = null
         sending = false
         keyboard?.hide()
     }
     val sendReply = sendReply@{
         val targetRevision = replyRevision ?: return@sendReply
-        if (!gesturesEnabled || draft.isBlank() || sending || staleReply) return@sendReply
+        if (!gesturesEnabled || draft.text.isBlank() || sending || staleReply) return@sendReply
         sending = true
-        val result = onReply(notification.key, targetRevision, draft)
+        val result = onReply(notification.key, targetRevision, draft.text)
         sending = false
         replyResult = result
         if (result == NotificationReplyResult.Dispatched) closeReply()
@@ -124,7 +130,7 @@ internal fun NotificationPopupItem(
                 TextButton(
                     enabled = gesturesEnabled,
                     onClick = {
-                        draft = ""
+                        draft = TextFieldValue()
                         replyResult = null
                         replyRevision = notification.revision
                     },
@@ -140,10 +146,30 @@ internal fun NotificationPopupItem(
                         onValueChange = { if (gesturesEnabled) { draft = it; replyResult = null } },
                         enabled = gesturesEnabled,
                         modifier = Modifier.fillMaxWidth().focusRequester(focusRequester)
+                            .onPreviewKeyEvent { event ->
+                                if (!gesturesEnabled || (event.key != Key.Enter && event.key != Key.NumPadEnter)) false
+                                else {
+                                    if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
+                                        if (event.isShiftPressed) {
+                                            val value = draft
+                                            val start = value.selection.min
+                                            val end = value.selection.max
+                                            draft = TextFieldValue(
+                                                value.text.replaceRange(start, end, "\n"),
+                                                TextRange(start + 1),
+                                            )
+                                            replyResult = null
+                                        } else sendReply()
+                                    }
+                                    true
+                                }
+                            }
                             .testTag("notification_reply_input:${notification.key}")
                             .semantics { contentDescription = inputLabel },
                         label = { Text(inputLabel) },
                         maxLines = 4,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = { sendReply() }),
                     )
                     if (error != null) {
                         Text(error, Modifier.fillMaxWidth().testTag("notification_reply_error:${notification.key}")
@@ -158,7 +184,7 @@ internal fun NotificationPopupItem(
                         }
                         Button(
                             onClick = sendReply,
-                            enabled = gesturesEnabled && draft.isNotBlank() && !sending && !staleReply,
+                            enabled = gesturesEnabled && draft.text.isNotBlank() && !sending && !staleReply,
                             modifier = Modifier.testTag("notification_reply_send:${notification.key}")
                                 .semantics { contentDescription = sendLabel },
                         ) { Text(sendLabel) }

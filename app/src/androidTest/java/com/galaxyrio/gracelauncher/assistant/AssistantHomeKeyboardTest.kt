@@ -41,10 +41,15 @@ class AssistantHomeKeyboardTest {
     @Test fun hiddenChatButtonLeavesBothShortcutsAvailable() {
         compose.runOnUiThread { assistant.showHomeButton(false) }
         compose.onNodeWithTag("assistant_chat_button").assertDoesNotExist()
-        for ((key, prefix) in listOf(KeyEvent.KEYCODE_1 to "!", KeyEvent.KEYCODE_2 to "")) {
+        for ((key, prefix, meta) in listOf(
+            Triple(KeyEvent.KEYCODE_1, "!", KeyEvent.META_SHIFT_ON),
+            Triple(KeyEvent.KEYCODE_2, "", KeyEvent.META_SHIFT_ON),
+            Triple(KeyEvent.KEYCODE_SPACE, "", 0),
+        )) {
             compose.runOnUiThread {
-                val down = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, key, 0, KeyEvent.META_SHIFT_ON)
+                val down = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, key, 0, meta)
                 assertTrue(assistant.enabled)
+                if (key == KeyEvent.KEYCODE_SPACE) assertEquals(' '.code, down.unicodeChar)
                 assertTrue(compose.activity.dispatchKeyEvent(down))
                 assertTrue(compose.activity.dispatchKeyEvent(KeyEvent.changeAction(down, KeyEvent.ACTION_UP)))
             }
@@ -108,6 +113,22 @@ class AssistantHomeKeyboardTest {
         compose.runOnUiThread { assertEquals("h", assistant.chat.draft) }
         compose.onNodeWithTag("assistant_chat_input").performTextInput("@")
         compose.runOnUiThread { assertEquals("h@", assistant.chat.draft) }
+    }
+
+    @Test fun spaceOpensWithoutAddingTextAndHeldSpaceIsConsumedOnlyForTheOpener() {
+        compose.runOnUiThread {
+            val down = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_SPACE)
+            assertTrue(compose.activity.dispatchKeyEvent(down))
+            assertEquals("", assistant.chat.draft)
+            assertTrue(compose.activity.dispatchKeyEvent(KeyEvent.changeTimeRepeat(down, 1, 1)))
+            val next = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_H)
+            assertTrue(compose.activity.dispatchKeyEvent(next))
+            compose.activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_H))
+            assertTrue(compose.activity.dispatchKeyEvent(KeyEvent.changeAction(down, KeyEvent.ACTION_UP)))
+        }
+        compose.onNodeWithTag("assistant_chat_window").assertIsDisplayed()
+        compose.onNodeWithTag("assistant_chat_input").assertTextContains("h").assertIsFocused()
+        compose.runOnUiThread { assertEquals("h", assistant.chat.draft) }
     }
 
     @Test fun atPreservesRetainedDraftAndSelection() {

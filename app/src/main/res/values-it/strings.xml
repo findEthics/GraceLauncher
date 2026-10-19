@@ -16,7 +16,6 @@
     <string name="private_space_title">Spazio privato</string>
     <string name="private_space_summary">Uno spazio protetto per le tue app private</string>
     <string name="private_space_enable">Abilita Spazio privato</string>
-    <string name="private_space_enable_summary">Mostra lo Spazio privato sotto le cartelle nella lista app</string>
     <string name="private_space_password">Protezione tramite password</string>
     <string name="private_space_password_summary">Autenticati con l\'impronta o con la password di sistema quando apri. Android potrebbe anche chiedere la password dello Spazio privato.</string>
     <string name="private_space_display">Mostra come</string>
@@ -42,7 +41,6 @@
     <string name="private_space_verify_title">Verifica la tua identità</string>
     <string name="private_space_security_required">Imposta un blocco schermo sul dispositivo per attivare la protezione con password</string>
     <string name="private_space_unlock_edit">Sblocca per modificare</string>
-    <string name="private_space_lock">Blocca lo Spazio privato</string>
     <string name="app_name">Grace Launcher</string>
     <string name="alphabet_scroller">Scorri rapidamente l\'alfabeto</string>
     <string name="back_home">Torna alla home</string>
@@ -77,15 +75,12 @@
     <string name="edit_favorites">Modifica preferiti</string>
     <string name="app_info">Info app</string>
     <string name="screen_time">Tempo di utilizzo</string>
-    <string name="add_to_category">Aggiungi a una categoria</string>
     <string name="uninstall">Disinstalla</string>
     <string name="advanced">Avanzate</string>
     <string name="rename_app">Rinomina app</string>
     <string name="rename_folder">Rinomina cartella</string>
     <string name="folder_contents_empty">Scegli app o widget per questa cartella.</string>
     <string name="folder_unavailable">Questa cartella non è disponibile.</string>
-    <string name="edit_icon">Modifica icona</string>
-    <string name="icon_edit_default">Predefinita</string>
     <string name="icon_edit_follow_theme">Segui tema icone</string>
     <string name="icon_edit_image">Immagine personalizzata</string>
     <string name="icon_edit_search">Cerca icone</string>
@@ -108,15 +103,6 @@
     <string name="save">Salva</string>
     <string name="cancel">Annulla</string>
     <string name="reset">Reset</string>
-    <string name="new_category">Nuova categoria</string>
-    <string name="remove_category">Rimuovi dalla categoria</string>
-    <string name="categories">Categorie</string>
-    <string name="wallpaper_text">Testo dello sfondo</string>
-    <string name="text_auto">Automatico</string>
-    <string name="text_light">Chiaro</string>
-    <string name="text_dark">Scuro</string>
-    <string name="themed_icons">Icone a tema</string>
-    <string name="themed_icons_description">Per app con icona monocromatica</string>
     <string name="your_agenda">La tua agenda</string>
     <string name="today">oggi</string>
     <string name="new_event">Nuovo evento</string>
@@ -138,8 +124,6 @@
     <string name="favorites_move_down">Sposta sotto</string>
     <string name="open_folder">Apri cartella</string>
     <string name="folder_actions">Azioni cartelle</string>
-    <string name="edit_folder">Modifica cartella</string>
-    <string name="empty_folder">Nessun\'app in questa cartella</string>
     <string name="notification_dismiss">Ignora</string>
     <string name="notification_now">ora</string>
     <string name="notification_minutes">%1$dm</string>
@@ -201,7 +185,6 @@
     <string name="settings_folder_create">Crea cartella</string>
     <string name="settings_folder_edit">Modifica cartella</string>
     <string name="settings_folder_name">Nome cartella</string>
-    <string name="settings_folder_members">App nella cartella</string>
     <string name="settings_folder_placement">Mostra la cartella in</string>
     <string name="settings_folder_favorites">Preferiti</string>
     <string name="settings_folder_app_list">Lista app</string>

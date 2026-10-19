@@ -10,14 +10,12 @@ class MobileActionDefaultsTest {
         val tools = MobileActionTools { queued += it }
 
         tools.createTimer("5 minutes")
-        tools.createAlarm("07:30")
         tools.callContact("Alex Smith")
         tools.createContact("Ada")
 
         assertEquals(
             listOf(
                 mapOf("duration" to "5 minutes", "label" to ""),
-                mapOf("time" to "07:30", "label" to ""),
                 mapOf("contactName" to "Alex Smith", "phoneLabel" to ""),
                 mapOf("firstName" to "Ada", "lastName" to "", "phoneNumber" to "", "email" to ""),
             ),
@@ -30,14 +28,6 @@ class MobileActionDefaultsTest {
         assertEquals(
             "",
             MobileAction.fromToolCall("createTimer", mapOf("duration" to "5 minutes")).arguments["label"],
-        )
-    }
-
-    @Test
-    fun alarmLabelDefaultsWhenOmitted() {
-        assertEquals(
-            "",
-            MobileAction.fromToolCall("createAlarm", mapOf("time" to "07:30")).arguments["label"],
         )
     }
 
@@ -60,11 +50,6 @@ class MobileActionDefaultsTest {
     @Test(expected = IllegalArgumentException::class)
     fun timerDurationRemainsRequired() {
         MobileAction.fromToolCall("createTimer", emptyMap())
-    }
-
-    @Test(expected = IllegalArgumentException::class)
-    fun alarmTimeRemainsRequired() {
-        MobileAction.fromToolCall("createAlarm", emptyMap())
     }
 
     @Test(expected = IllegalArgumentException::class)

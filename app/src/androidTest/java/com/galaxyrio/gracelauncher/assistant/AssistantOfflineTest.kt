@@ -1,5 +1,8 @@
 package com.galaxyrio.gracelauncher.assistant
 
+import android.content.ContextWrapper
+import android.content.Intent
+import android.provider.AlarmClock
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -9,7 +12,7 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-/** Real model inference only. Never dispatches tools, writes providers or places calls. */
+/** Real model inference with captured intents only. Never launches apps, writes providers or places calls. */
 class AssistantOfflineTest {
     @Test fun verifiedGemmaRoutesCoreCommandsWithinContext() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -67,8 +70,10 @@ class AssistantOfflineTest {
             val futureDay = if (future.toLocalDate() > now.toLocalDate()) " tomorrow" else " today"
             val cases = listOf<Triple<String, String, LocalTime?>>(
                 Triple("ambiguous-short", "alarm 7:00", null),
-                Triple("reported-hour-am", "alarm 7am", sevenToday),
-                Triple("reported-minute-am", "alarm 7:00am", sevenToday),
+                Triple("reported-hour-am", "alarm 7am", seven),
+                Triple("reported-minute-am", "alarm 7:00am", seven),
+                Triple("reported-wake-up", "wake me up at 7am", seven),
+                Triple("explicit-today", "alarm 7am today", sevenToday),
                 Triple("future-hour-am", "alarm 7am$sevenDay", seven),
                 Triple("future-minute-am", "alarm 7:00am$sevenDay", seven),
                 Triple("future-24h", "alarm 07:00$sevenDay", seven),
@@ -93,7 +98,7 @@ class AssistantOfflineTest {
                         "Required action arguments cannot be blank." -> "blank-required-field"
                         "Use a valid local alarm time in HH:mm format." -> "alarm-time-format"
                         "Say an explicit alarm time that matches. No alarm was set." -> "time-grounding"
-                        "Alarms are only for a time ahead today, or tomorrow after that time passed today. No alarm was set." -> "alarm-day"
+                        "Without a day, alarms use the next occurrence. An explicit day must match that occurrence. No alarm was set." -> "alarm-day"
                         else -> "invalid-proposal"
                     }
                     if (expected == null) println("Alarm check $case: rejected at $stage ($reason); not dispatched")
@@ -103,6 +108,33 @@ class AssistantOfflineTest {
                 }
             }
             assertTrue("Alarm checks failed: ${failures.joinToString("; ")}", failures.isEmpty())
+        } finally { controller.close() }
+    }
+
+    @Test fun alarmSkillProposalDispatchesOneCapturedClockIntent() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val controller = AssistantController(context, this)
+        try {
+            assertTrue("Verified Gemma4 must be present", controller.files.ready(AssistantModel.Gemma4))
+            val now = LocalDateTime.now()
+            val time = LocalTime.of(7, 0)
+            val request = "wake me up at 7am"
+            val action = controller.infer(AssistantModel.Gemma4, request)
+            assertEquals("createAlarm", action.name)
+            val launches = mutableListOf<Intent>()
+            val capturingContext = object : ContextWrapper(context) {
+                override fun startActivity(intent: Intent) { launches += intent }
+            }
+            assertEquals("Alarm requested from Clock; not confirmed set.",
+                MobileActionExecutor.execute(capturingContext, action, request, now))
+            assertEquals(1, launches.size)
+            val intent = launches.single()
+            assertEquals(AlarmClock.ACTION_SET_ALARM, intent.action)
+            assertEquals(time.hour, intent.getIntExtra(AlarmClock.EXTRA_HOUR, -1))
+            assertEquals(time.minute, intent.getIntExtra(AlarmClock.EXTRA_MINUTES, -1))
+            assertTrue(intent.getBooleanExtra(AlarmClock.EXTRA_SKIP_UI, false))
+            assertFalse(intent.hasExtra(AlarmClock.EXTRA_DAYS))
+            assertEquals(Intent.FLAG_ACTIVITY_NEW_TASK, intent.flags)
         } finally { controller.close() }
     }
 

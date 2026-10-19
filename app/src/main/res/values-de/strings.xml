@@ -3,7 +3,6 @@
     <string name="private_space_title">Privater Bereich</string>
     <string name="private_space_summary">Ein geschützter Bereich für deine privaten Apps</string>
     <string name="private_space_enable">Privaten Bereich aktivieren</string>
-    <string name="private_space_enable_summary">Privaten Bereich unten unter „Ordner“ in der App-Liste anzeigen</string>
     <string name="private_space_password">Passwortschutz</string>
     <string name="private_space_password_summary">Beim Öffnen mit Fingerabdruck oder einem Systempasswort bestätigen. Android verlangt möglicherweise zusätzlich das Passwort für den privaten Bereich.</string>
     <string name="private_space_display">Anzeigen als</string>
@@ -21,7 +20,6 @@
     <string name="private_space_verify_title">Bestätige, dass du es bist</string>
     <string name="private_space_security_required">Richte eine Displaysperre ein, um den Passwortschutz zu aktivieren</string>
     <string name="private_space_unlock_edit">Zum Bearbeiten entsperren</string>
-    <string name="private_space_lock">Privaten Bereich sperren</string>
     <!--  Core  -->
 <string name="app_name">Grace Launcher</string>
     <string name="alphabet_scroller">Alphabetisches Schnellscrollen</string>
@@ -57,15 +55,12 @@
     <string name="edit_favorites">Favoriten bearbeiten</string>
     <string name="app_info">App-Info</string>
     <string name="screen_time">Bildschirmzeit</string>
-    <string name="add_to_category">Zur Kategorie hinzufügen</string>
     <string name="uninstall">Deinstallieren</string>
     <string name="advanced">Erweitert</string>
     <string name="rename_app">App umbenennen</string>
     <string name="rename_folder">Ordner umbenennen</string>
     <string name="folder_contents_empty">Wähle Apps oder Widgets für diesen Ordner aus.</string>
     <string name="folder_unavailable">Dieser Ordner ist nicht verfügbar.</string>
-    <string name="edit_icon">Symbol bearbeiten</string>
-    <string name="icon_edit_default">Standard</string>
     <string name="icon_edit_follow_theme">Symbolthema verwenden</string>
     <string name="icon_edit_image">Eigenes Bild</string>
     <string name="icon_edit_search">Symbole suchen</string>
@@ -84,15 +79,6 @@
     <string name="save">Speichern</string>
     <string name="cancel">Abbrechen</string>
     <string name="reset">Zurücksetzen</string>
-    <string name="new_category">Neue Kategorie</string>
-    <string name="remove_category">Aus Kategorie entfernen</string>
-    <string name="categories">Kategorien</string>
-    <string name="wallpaper_text">Hintergrundtext</string>
-    <string name="text_auto">Automatisch</string>
-    <string name="text_light">Hell</string>
-    <string name="text_dark">Dunkel</string>
-    <string name="themed_icons">Thematische Symbole</string>
-    <string name="themed_icons_description">Für Apps mit einfarbigem Symbol</string>
     <string name="your_agenda">Deine Agenda</string>
     <string name="today">heute</string>
     <string name="new_event">Neuer Termin</string>
@@ -116,8 +102,6 @@
     <!--  Folders  -->
 <string name="open_folder">Ordner öffnen</string>
     <string name="folder_actions">Ordneraktionen</string>
-    <string name="edit_folder">Ordner bearbeiten</string>
-    <string name="empty_folder">Keine Apps in diesem Ordner</string>
     <!--  Notifications  -->
 <string name="notification_dismiss">Schließen</string>
     <string name="notification_now">jetzt</string>
@@ -180,7 +164,6 @@
     <string name="settings_folder_create">Ordner erstellen</string>
     <string name="settings_folder_edit">Ordner bearbeiten</string>
     <string name="settings_folder_name">Ordnername</string>
-    <string name="settings_folder_members">Apps in diesem Ordner</string>
     <string name="settings_folder_placement">Ordner anzeigen in</string>
     <string name="settings_folder_favorites">Favoriten</string>
     <string name="settings_folder_app_list">App-Liste</string>
@@ -194,15 +177,11 @@
         <item quantity="one">%1$d ausgewählt</item>
         <item quantity="other">%1$d ausgewählt</item>
     </plurals>
-    <string name="settings_search_apps">Apps suchen</string>
-    <string name="settings_no_apps">Keine passenden Apps</string>
     <string name="settings_save">Speichern</string>
     <string name="settings_cancel">Abbrechen</string>
     <string name="settings_delete">Löschen</string>
-    <string name="settings_add_widget">Widget hinzufügen</string>
     <string name="settings_move_widget">Widget verschieben</string>
     <string name="settings_show_battery">Akkuladestand anzeigen</string>
-    <string name="settings_show_battery_summary">Akkuladestand neben dem Datum anzeigen</string>
     <string name="settings_allow_haptics">Haptisches Feedback zulassen</string>
     <string name="settings_allow_haptics_summary">Der Systemeinstellung für haptisches Feedback folgen</string>
     <string name="settings_theme_section">Farbe und Design</string>
@@ -229,7 +208,6 @@
     <string name="settings_text_auto">Automatisch</string>
     <string name="settings_text_light">Heller Text</string>
     <string name="settings_text_dark">Dunkler Text</string>
-    <string name="settings_themed_icons">Thematische Symbole</string>
     <string name="settings_themed_icons_summary">Verfügbare einfarbige Symbole verwenden</string>
     <string name="settings_misc">Sonstiges</string>
     <string name="settings_hide_status_bar">Statusleiste ausblenden</string>
@@ -305,7 +283,6 @@
     <string name="icon_designer_hue">Farbton</string>
     <string name="icon_designer_hex">Hex-Farbwert</string>
     <string name="icon_designer_color_presets">Farbvorlagen</string>
-    <string name="icon_pack_description">Symbole werden der Reihe nach aus aktivierten Paketen verwendet, danach aus dem System. Individuelle Designs pro App haben Vorrang.</string>
     <string name="icon_pack_empty">Keine Symbolpakete installiert. Installiere eines und kehre dann hierher zurück.</string>
     <string name="icon_pack_unavailable">Symbolpaket nicht verfügbar · Systemsymbole werden verwendet</string>
     <string name="icon_pack_missing">%1$s ist nicht verfügbar. Andere aktivierte Pakete oder Systemsymbole werden verwendet.</string>
@@ -314,8 +291,6 @@
 <string name="weather_settings_enabled_summary">Startbildschirm und Agenda · Breezy Weather</string>
     <string name="weather_settings_disabled_summary">Optional · Breezy Weather erforderlich</string>
     <string name="weather_settings_enable">Wetter anzeigen</string>
-    <string name="weather_settings_enable_summary">Wetter neben dem Datum und in deiner Agenda anzeigen.</string>
-    <string name="weather_settings_about">Die integrierte Wetterfunktion verwendet die in Breezy Weather gespeicherten Orte und Vorhersagen. Erlaube den Zugriff, um diese Daten mit Grace Launcher zu teilen.</string>
     <string name="weather_settings_connection">Breezy Weather</string>
     <string name="weather_settings_disabled">Aktiviere das Wetter, um Breezy Weather zu verbinden.</string>
     <string name="weather_settings_loading">Breezy Weather wird überprüft…</string>
@@ -392,7 +367,6 @@
     <string name="licenses_link_unavailable">Es ist keine App verfügbar, um diesen Link zu öffnen.</string>
     <!--  Clock style  -->
 <string name="clock_style_apply">Anwenden</string>
-    <string name="clock_layout">Uhrenlayout</string>
     <string name="clock_single_line">Einzeilig</string>
     <string name="clock_two_lines">Zweizeilig</string>
     <string name="clock_week" translatable="false">Week</string>

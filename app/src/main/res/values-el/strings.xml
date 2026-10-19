@@ -3,7 +3,6 @@
     <string name="private_space_title">Ιδιωτικός χώρος</string>
     <string name="private_space_summary">Ένας προστατευμένος χώρος για τις ιδιωτικές σου εφαρμογές</string>
     <string name="private_space_enable">Ενεργοποίηση προσωπικού χώρου</string>
-    <string name="private_space_enable_summary">Δείξε προσωπικό χώρο κάτω από τους φακέλους στη λίστα εφαρμογών</string>
     <string name="private_space_password">Προστασία με κωδικό</string>
     <string name="private_space_password_summary">Βεβάιωση με δαχτυλικό αποτύπωμα ή κωδικό του συστήματος κατά το άνοιγμα. Το Android ίσως χρειαστεί τον κωδικό του προσωπικού χώρου.</string>
     <string name="private_space_display">Εμφάνιση ως</string>
@@ -21,7 +20,6 @@
     <string name="private_space_verify_title">Βεβαίωση ότι είσαι εσύ</string>
     <string name="private_space_security_required">Ρύθμισε κλείδωμα οθόνης στη συσκευή για να ενεργοποιηθεί η προστασία με κωδικό</string>
     <string name="private_space_unlock_edit">Ξεκλείδωμα για επεξεργασία</string>
-    <string name="private_space_lock">Κλείδωμα προσωπικού χώρου</string>
     <string name="app_name">Grace Launcher</string>
     <string name="alphabet_scroller">Γρήγορο scroll αλφάβητου</string>
     <string name="back_home">Πίσω στην αρχική</string>

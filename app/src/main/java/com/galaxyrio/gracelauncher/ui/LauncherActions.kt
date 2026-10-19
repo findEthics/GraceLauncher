@@ -1,7 +1,6 @@
 package com.galaxyrio.gracelauncher.ui
 
 import androidx.compose.ui.geometry.Rect
-import android.net.Uri
 import com.galaxyrio.gracelauncher.data.ItemIcon
 import com.galaxyrio.gracelauncher.data.PopupItem
 import com.galaxyrio.gracelauncher.data.LauncherApp
@@ -30,7 +29,6 @@ data class LauncherActions(
     val uninstall: (LauncherApp) -> Unit = {},
     val rename: (LauncherApp, String) -> Unit = { _, _ -> },
     val setItemIcon: suspend (LauncherApp, ItemIcon?) -> Boolean = { _, _ -> false },
-    val importItemIcon: suspend (LauncherApp, Uri) -> Boolean = { _, _ -> false },
     val showShortcutInAppList: (LauncherApp, Boolean) -> Unit = { _, _ -> },
     val rememberShortcut: suspend (LauncherApp) -> Boolean = { false },
     val updatePopup: (LauncherApp, List<LauncherApp>, (List<PopupItem>) -> List<PopupItem>) -> Unit = { _, _, _ -> },

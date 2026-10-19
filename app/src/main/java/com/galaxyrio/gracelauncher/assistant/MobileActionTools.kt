@@ -58,12 +58,6 @@ class MobileActionTools(private val onAction: (MobileAction) -> Unit) : ToolSet 
         @ToolParam(description = "An optional label, or empty.") label: String = "",
     ): Map<String, String> = queue("createTimer", mapOf("duration" to duration, "label" to label))
 
-    @Tool(description = "Sets an alarm at a time today (or tomorrow if that time already passed today).")
-    fun createAlarm(
-        @ToolParam(description = "The time as 24-hour HH:mm, e.g. 07:30.") time: String,
-        @ToolParam(description = "An optional label, or empty.") label: String = "",
-    ): Map<String, String> = queue("createAlarm", mapOf("time" to time, "label" to label))
-
     @Tool(description = "Calls a saved contact by their exact saved display name.")
     fun callContact(
         @ToolParam(description = "The saved display name exactly as spoken.") contactName: String,

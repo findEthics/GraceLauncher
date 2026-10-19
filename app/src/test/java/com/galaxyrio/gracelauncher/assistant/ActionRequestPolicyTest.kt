@@ -1,6 +1,7 @@
 package com.galaxyrio.gracelauncher.assistant
 
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.ZoneId
 import org.junit.Assert.*
 import org.junit.Test
@@ -61,7 +62,8 @@ class ActionRequestPolicyTest {
         bad("createAlarm", "set an alarm for 10:30", "time" to "10:30", "label" to "") // ambiguous 12h/24h
         ok("createAlarm", "set an alarm for 10:30 am", "time" to "10:30", "label" to "")
         bad("createAlarm", "set an alarm for 10:30 am", "time" to "10:31", "label" to "")
-        bad("createAlarm", "set an alarm for 8:30 am", "time" to "08:30", "label" to "") // passed today, no "tomorrow"
+        ok("createAlarm", "set an alarm for 8:30 am", "time" to "08:30", "label" to "") // passed today, implicitly tomorrow
+        bad("createAlarm", "set an alarm for 8:30 am today", "time" to "08:30", "label" to "")
         ok("createAlarm", "set an alarm for 8:30 am tomorrow", "time" to "08:30", "label" to "")
         ok("createAlarm", "wake me up tomorrow at 8:30 am", "time" to "08:30", "label" to "")
         bad("createAlarm", "set an alarm for 10:30 am tomorrow", "time" to "10:30", "label" to "") // still ahead today
@@ -70,15 +72,33 @@ class ActionRequestPolicyTest {
         bad("createAlarm", "set an alarm", "time" to "08:30", "label" to "")
     }
 
-    @Test fun compactAlarmFormsStillRequireAnExplicitFutureOccurrence() {
-        for (request in listOf("alarm 7am", "alarm 7:00am", "alarm 07:00")) {
+    @Test fun daylessAlarmFormsUseTheNextOccurrence() {
+        for (request in listOf("alarm 7am", "alarm 7:00am", "alarm 07:00", "wake me up at 7am")) {
             ok("createAlarm", request, "time" to "07:00", "label" to "", at = now.withHour(5))
-            bad("createAlarm", request, "time" to "07:00", "label" to "")
+            ok("createAlarm", request, "time" to "07:00", "label" to "")
+            bad("createAlarm", "$request today", "time" to "07:00", "label" to "")
             ok("createAlarm", "$request tomorrow", "time" to "07:00", "label" to "")
         }
         bad("createAlarm", "alarm 7:00", "time" to "07:00", "label" to "", at = now.withHour(5))
         ok("createAlarm", "alarm 1am tomorrow", "time" to "01:00", "label" to "", at = now.withHour(23).withMinute(30))
-        bad("createAlarm", "alarm 1am", "time" to "01:00", "label" to "", at = now.withHour(23).withMinute(30))
+        ok("createAlarm", "alarm 1am", "time" to "01:00", "label" to "", at = now.withHour(23).withMinute(30))
+    }
+
+    @Test fun alarmOccurrenceRollsDatesWithoutOverridingExplicitDays() {
+        val seven = LocalTime.of(7, 0)
+        val today = now.toLocalDate().atTime(seven)
+        val request = "wake me up at 7am"
+        assertEquals(today, ActionInputValidation.alarmOccurrence(seven, now.withHour(5), request))
+        assertEquals(today.plusDays(1), ActionInputValidation.alarmOccurrence(seven, now, request))
+        assertEquals(today, ActionInputValidation.alarmOccurrence(seven, now.withHour(5), "$request today"))
+        assertNull(ActionInputValidation.alarmOccurrence(seven, now, "$request today"))
+        assertEquals(today.plusDays(1), ActionInputValidation.alarmOccurrence(seven, now, "$request tomorrow"))
+        assertNull(ActionInputValidation.alarmOccurrence(seven, now.withHour(5), "$request tomorrow"))
+        assertNull(ActionInputValidation.alarmOccurrence(seven, today, request))
+        assertNull(ActionInputValidation.alarmOccurrence(seven, now, "$request today tomorrow"))
+        val yearEnd = LocalDateTime.of(2026, 12, 31, 23, 30)
+        assertEquals(LocalDateTime.of(2027, 1, 1, 1, 0),
+            ActionInputValidation.alarmOccurrence(LocalTime.of(1, 0), yearEnd, "alarm 1am"))
     }
 
     @Test fun callTargetNeedsWholeNameAndLabel() {

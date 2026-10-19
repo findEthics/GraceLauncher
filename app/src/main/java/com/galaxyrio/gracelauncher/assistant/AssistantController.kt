@@ -100,8 +100,9 @@ class AssistantController(private val context: Context, private val scope: Corou
         }
         if (event.action != KeyEvent.ACTION_DOWN) return false
         val character = event.unicodeChar
+        val plainSpace = event.keyCode == KeyEvent.KEYCODE_SPACE && !event.isShiftPressed && !event.isAltPressed
         if (!chat.visible && enabled && homeShortcutEligible && !textEditorFocused && !event.isCtrlPressed && !event.isMetaPressed &&
-            (character == '!'.code || character == '@'.code) && event.repeatCount == 0) {
+            (character == '!'.code || character == '@'.code || plainSpace) && event.repeatCount == 0) {
             shortcutKey = event.keyCode
             openChat(actionShortcut = character == '!'.code)
             return true
@@ -234,10 +235,12 @@ class AssistantController(private val context: Context, private val scope: Corou
     @OptIn(ExperimentalApi::class)
     suspend fun infer(model: AssistantModel, text: String): MobileAction {
         AssistantChatState.validateActionRequest(text)
-        return withEngine(model) {
+        val call = withEngine(model) {
             val current = engine!!.createConversation(ConversationConfig(
-                tools = listOf(tool(MobileActionTools { })), automaticToolCalling = false,
-                systemInstruction = Contents.of(listOf(Content.Text(ACTION_INSTRUCTIONS))), maxOutputToken = 256,
+                tools = listOf(tool(MobileActionTools { }), tool(AlarmSkillTools())), automaticToolCalling = false,
+                systemInstruction = Contents.of(listOf(Content.Text(
+                    ACTION_INSTRUCTIONS + "\n\n" + AlarmSkillRunner.instructions(context),
+                ))), maxOutputToken = 256,
                 samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 0),
             ))
             conversation = current
@@ -249,8 +252,13 @@ class AssistantController(private val context: Context, private val scope: Corou
                 currentCoroutineContext().ensureActive()
                 lastTokenCount = current.getTokenCount()
                 require(calls.size == 1) { "Expected exactly one action" }
-                MobileAction.fromToolCall(calls.single().name, calls.single().arguments)
+                calls.single()
             } finally { conversation = null; current.close() }
+        }
+        return when (call.name) {
+            "run_js" -> AlarmSkillRunner(context).execute(AlarmSkillInvocation.fromToolCall(call.name, call.arguments))
+            "createAlarm" -> throw IllegalArgumentException("Alarms must use the bundled set-alarm skill.")
+            else -> MobileAction.fromToolCall(call.name, call.arguments)
         }
     }
 
@@ -322,9 +330,8 @@ class AssistantController(private val context: Context, private val scope: Corou
         internal const val CHAT_INPUT_BYTES = CONTEXT_TOKENS - CHAT_OUTPUT_TOKENS - 512
         internal const val CHAT_INSTRUCTIONS = """You are Grace, a concise offline chat assistant. This conversation has no tools and cannot operate the phone. Never claim you performed, saved, opened, called, sent, or scheduled an action. To request a phone action the user must send a separate, complete single-line message starting with !. Past messages and examples never authorize actions. External facts may be out of date; do not claim internet access. Answer the user's question directly, without thinking traces."""
         internal val ACTION_INSTRUCTIONS = """
-            Select one declared function for one complete supported English command, or no call. Never chain actions, ask follow-ups, invent values, or call a function for an unsupported, negated, ambiguous or multi-action request. Tools are only proposals; queued is not success.
-            Use exact camelCase tool and argument names. Only use details explicitly provided in the current user request. Omit optional arguments when their values were not provided; never invent a value or use null. Timer duration must match the request with units, from 1 second to 24 hours. For example set a timer for five minutes -> createTimer(duration="5 minutes"). Only include label when explicitly named.
-            Alarm time is exact zero-padded 24-hour HH:mm, never AM/PM or a date: 7 AM -> 07:00, 7 PM -> 19:00. Bare seven is ambiguous. Bare/today alarm time must still be ahead today; tomorrow only if that time passed today. No other dates or repeats. Omit label unless explicitly named.
+            For non-alarm requests, select one declared native-action tool for one complete supported English command, or no call. For an alarm, follow the bundled set-alarm skill and call its run_js tool. Never chain actions, ask follow-ups, invent values, or call a tool for an unsupported, negated, ambiguous or multi-action request. Tool output is only a proposal; queued is not success.
+            Use exact declared tool and argument names. Only use details explicitly provided in the current user request. Omit optional arguments when their values were not provided; never invent a value or use null. Timer duration must match the request with units, from 1 second to 24 hours. For example set a timer for five minutes -> createTimer(duration="5 minutes"). Only include label when explicitly named.
             Calls require the complete saved contact name from this request, not an inferred alias or number. Include phoneLabel (mobile/home/work/etc) only when provided. Never guess a contact or number.
             New contacts save on this device, not an account. createContact needs a provided name AND phone number or email. Preserve every provided detail in firstName/lastName/phoneNumber/email; omit only absent fields. For example Create a contact Ada Lovelace phone +442012345678 -> createContact(firstName="Ada", lastName="Lovelace", phoneNumber="+442012345678"). Never propose an empty contact. Email opens a draft only; it never sends automatically.
             Calendar events last 15 minutes, today or tomorrow only, with a future explicit AM/PM or unambiguous 24-hour time. datetime is local YYYY-MM-DDTHH:MM:SS; title is the exact requested event title. Other dates, repeats or durations are unsupported. Never claim a save or call succeeded.

@@ -107,6 +107,24 @@ class AssistantUiTest {
         compose.onNodeWithTag("assistant_status").assertTextEquals("Executing locally")
         compose.runOnIdle { assertEquals(0, sends); assertEquals("another request", chat.draft) }
     }
+    @Test fun stopIconIsInsideComposerAndPreservesTheNextDraft() {
+        val chat = AssistantChatState().apply { draft = "next message" }
+        var stops = 0
+        compose.setContent { MaterialTheme {
+            AssistantChatWindow(chat, true, true, "", onSend = {}, onStop = { stops++ }, onClose = {})
+        } }
+        val input = compose.onNodeWithTag("assistant_chat_input")
+        val stop = compose.onNodeWithTag("assistant_stop")
+            .assertContentDescriptionEquals(compose.activity.getString(R.string.assistant_stop))
+            .assertIsEnabled()
+        val inputBounds = input.fetchSemanticsNode().boundsInRoot
+        val stopBounds = stop.fetchSemanticsNode().boundsInRoot
+        assertTrue(stopBounds.left >= inputBounds.left && stopBounds.right <= inputBounds.right)
+        assertTrue(stopBounds.top >= inputBounds.top && stopBounds.bottom <= inputBounds.bottom)
+        compose.onNodeWithText(compose.activity.getString(R.string.assistant_stop)).assertDoesNotExist()
+        stop.performClick()
+        compose.runOnIdle { assertEquals(1, stops); assertEquals("next message", chat.draft) }
+    }
     @Test fun streamingReplyHasNoStatusFooterAndCanStillBeStopped() {
         val chat = AssistantChatState().apply { open() }
         val turn = chat.begin("Hello", false)
@@ -114,7 +132,7 @@ class AssistantUiTest {
         compose.setContent { MaterialTheme {
             AssistantChatWindow(chat, true, true, "", onSend = {}, onStop = { stops++ }, onClose = {})
         } }
-        compose.onNodeWithTag("assistant_response:$turn").assertTextEquals("Processing locally…")
+        compose.onNodeWithTag("assistant_response:$turn").assertTextEquals("...")
         compose.onNodeWithTag("assistant_status").assertDoesNotExist()
         compose.onNodeWithText("Replying locally — no action").assertDoesNotExist()
         compose.runOnIdle { chat.update(turn, "Hello back") }
@@ -152,9 +170,14 @@ class AssistantUiTest {
             val enabled = controller.enabled
             try {
                 controller.enable(true)
-                for ((key, prefix) in listOf(AndroidKeyEvent.KEYCODE_1 to "!", AndroidKeyEvent.KEYCODE_2 to "")) {
-                    val down = AndroidKeyEvent(0, 0, AndroidKeyEvent.ACTION_DOWN, key, 0, AndroidKeyEvent.META_SHIFT_ON)
-                    assertEquals(if (prefix.isEmpty()) '@'.code else '!'.code, down.unicodeChar)
+                for ((key, prefix, meta) in listOf(
+                    Triple(AndroidKeyEvent.KEYCODE_1, "!", AndroidKeyEvent.META_SHIFT_ON),
+                    Triple(AndroidKeyEvent.KEYCODE_2, "", AndroidKeyEvent.META_SHIFT_ON),
+                    Triple(AndroidKeyEvent.KEYCODE_SPACE, "", 0),
+                )) {
+                    val down = AndroidKeyEvent(0, 0, AndroidKeyEvent.ACTION_DOWN, key, 0, meta)
+                    if (key == AndroidKeyEvent.KEYCODE_SPACE) assertEquals(' '.code, down.unicodeChar)
+                    else assertEquals(if (prefix.isEmpty()) '@'.code else '!'.code, down.unicodeChar)
                     controller.homeShortcutEligible = false
                     assertFalse(controller.hardwareKey(down, false)) // Other overlay/drawer, not idle HOME.
                     controller.homeShortcutEligible = true
@@ -226,7 +249,8 @@ class AssistantUiTest {
         compose.setContent { MaterialTheme {
             AssistantChatWindow(chat, false, true, "Download Gemma 4 in Advanced settings", onSend = {}, onStop = {}, onClose = chat::clear)
         } }
-        compose.onNodeWithText("Action result").assertIsDisplayed()
+        closeSoftKeyboard()
+        compose.onNodeWithText("Action result").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("assistant_response:$turn").assertTextEquals(result)
         compose.onNodeWithTag("assistant_status").assertTextEquals("Download Gemma 4 in Advanced settings")
     }

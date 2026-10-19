@@ -11,9 +11,6 @@ data class GraceButtonSettings(
     val tap: GraceButtonTarget = GraceButtonTarget(GraceButtonAction.Search),
     val longPress: GraceButtonTarget = GraceButtonTarget(GraceButtonAction.Settings),
 ) {
-    fun withTarget(longClick: Boolean, target: GraceButtonTarget) =
-        if (longClick) copy(longPress = target) else copy(tap = target)
-
     fun encode(): String = JSONObject().apply {
         put("enabled", enabled)
         fun write(name: String, target: GraceButtonTarget) {

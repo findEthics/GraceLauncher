@@ -17,7 +17,6 @@
     <string name="private_space_title">私密空间</string>
     <string name="private_space_summary">为私密应用提供受保护的空间</string>
     <string name="private_space_enable">启用私密空间</string>
-    <string name="private_space_enable_summary">在应用列表的文件夹分类底部显示私密空间</string>
     <string name="private_space_password">密码保护</string>
     <string name="private_space_password_summary">打开时使用指纹或系统密码验证。Android 也可能要求验证私密空间密码。</string>
     <string name="private_space_display">显示方式</string>
@@ -43,7 +42,6 @@
     <string name="private_space_verify_title">验证身份</string>
     <string name="private_space_security_required">请设置设备锁屏密码以启用密码保护</string>
     <string name="private_space_unlock_edit">验证身份后编辑</string>
-    <string name="private_space_lock">锁定私密空间</string>
     <!-- 核心 -->
     <string name="app_name">Grace 启动器</string>
     <string name="alphabet_scroller">字母快速索引</string>
@@ -79,15 +77,12 @@
     <string name="edit_favorites">编辑收藏</string>
     <string name="app_info">应用信息</string>
     <string name="screen_time">使用时间</string>
-    <string name="add_to_category">添加到分类</string>
     <string name="uninstall">卸载</string>
     <string name="advanced">高级</string>
     <string name="rename_app">重命名应用</string>
     <string name="rename_folder">重命名文件夹</string>
     <string name="folder_contents_empty">为此文件夹选择应用或小组件。</string>
     <string name="folder_unavailable">此文件夹不可用。</string>
-    <string name="edit_icon">修改图标</string>
-    <string name="icon_edit_default">默认图标</string>
     <string name="icon_edit_follow_theme">跟随图标主题</string>
     <string name="icon_edit_image">自定义图片</string>
     <string name="icon_edit_search">搜索图标</string>
@@ -110,15 +105,6 @@
     <string name="save">保存</string>
     <string name="cancel">取消</string>
     <string name="reset">重置</string>
-    <string name="new_category">新建分类</string>
-    <string name="remove_category">从分类移除</string>
-    <string name="categories">分类</string>
-    <string name="wallpaper_text">壁纸上的文字</string>
-    <string name="text_auto">自动</string>
-    <string name="text_light">浅色</string>
-    <string name="text_dark">深色</string>
-    <string name="themed_icons">主题图标</string>
-    <string name="themed_icons_description">适用于提供单色图标的应用</string>
     <string name="your_agenda">你的日程</string>
     <string name="today">今天</string>
     <string name="new_event">新建日程</string>
@@ -146,8 +132,6 @@
     <!-- 文件夹 -->
     <string name="open_folder">打开文件夹</string>
     <string name="folder_actions">文件夹操作</string>
-    <string name="edit_folder">编辑文件夹</string>
-    <string name="empty_folder">文件夹中暂无应用</string>
 
     <!-- 通知 -->
     <string name="notification_dismiss">清除</string>
@@ -211,7 +195,6 @@
     <string name="settings_folder_create">创建文件夹</string>
     <string name="settings_folder_edit">编辑文件夹</string>
     <string name="settings_folder_name">文件夹名称</string>
-    <string name="settings_folder_members">文件夹中的应用</string>
     <string name="settings_folder_placement">文件夹显示位置</string>
     <string name="settings_folder_favorites">收藏列表</string>
     <string name="settings_folder_app_list">应用列表</string>
@@ -226,15 +209,11 @@
     <plurals name="settings_select_count">
         <item quantity="other">已选择 %1$d 个</item>
     </plurals>
-    <string name="settings_search_apps">搜索应用</string>
-    <string name="settings_no_apps">没有匹配的应用</string>
     <string name="settings_save">保存</string>
     <string name="settings_cancel">取消</string>
     <string name="settings_delete">删除</string>
-    <string name="settings_add_widget">添加小组件</string>
     <string name="settings_move_widget">移动小组件</string>
     <string name="settings_show_battery">显示电量百分比</string>
-    <string name="settings_show_battery_summary">在日期旁显示剩余电量</string>
     <string name="settings_allow_haptics">允许触感反馈</string>
     <string name="settings_allow_haptics_summary">遵循系统触感反馈设置</string>
     <string name="settings_theme_section">配色与主题</string>
@@ -264,7 +243,6 @@
     <string name="settings_text_auto">自动</string>
     <string name="settings_text_light">浅色文字</string>
     <string name="settings_text_dark">深色文字</string>
-    <string name="settings_themed_icons">主题图标</string>
     <string name="settings_themed_icons_summary">使用可用的单色图标</string>
     <string name="settings_misc">其他</string>
     <string name="settings_hide_status_bar">隐藏状态栏</string>
@@ -352,7 +330,6 @@
     <string name="icon_designer_hue">色相</string>
     <string name="icon_designer_hex">十六进制颜色</string>
     <string name="icon_designer_color_presets">预设颜色</string>
-    <string name="icon_pack_description">按启用顺序匹配图标，最后使用系统图标。单独设计的图标优先于图标包。</string>
     <string name="icon_pack_empty">未安装图标包，安装后返回此处即可选择。</string>
     <string name="icon_pack_unavailable">图标包不可用 · 已使用系统图标</string>
     <string name="icon_pack_missing">%1$s 不可用，将按顺序使用其他图标包或系统图标。</string>
@@ -362,8 +339,6 @@
     <string name="weather_settings_enabled_summary">桌面与日程 · Breezy Weather</string>
     <string name="weather_settings_disabled_summary">可选功能 · 需要 Breezy Weather</string>
     <string name="weather_settings_enable">显示天气</string>
-    <string name="weather_settings_enable_summary">在日期旁及日程页面显示天气。</string>
-    <string name="weather_settings_about">内置天气使用 Breezy Weather 中保存的地点和预报。请授权向 Grace Launcher 共享这些数据。</string>
     <string name="weather_settings_connection">Breezy Weather</string>
     <string name="weather_settings_disabled">开启天气以连接 Breezy Weather。</string>
     <string name="weather_settings_loading">正在检查 Breezy Weather…</string>
@@ -440,7 +415,6 @@
 
     <!-- Clock style -->
     <string name="clock_style_apply">应用</string>
-    <string name="clock_layout">时钟样式</string>
     <string name="clock_single_line">单行排列</string>
     <string name="clock_two_lines">双行排列</string>
     <string name="clock_font_default">默认字体 · Josefin Sans</string>
