@@ -3,6 +3,7 @@ package com.galaxyrio.gracelauncher
 import com.galaxyrio.gracelauncher.data.CountdownUnit
 import com.galaxyrio.gracelauncher.data.ScheduleEvent
 import com.galaxyrio.gracelauncher.data.agendaDays
+import com.galaxyrio.gracelauncher.data.distinctCalendarOccurrences
 import com.galaxyrio.gracelauncher.data.eventCountdown
 import com.galaxyrio.gracelauncher.data.visibleScheduleEvents
 import java.time.Duration
@@ -65,6 +66,21 @@ class ScheduleTimingTest {
         val second = event(now.plusSeconds(23 * 3600L), now.plusSeconds(25 * 3600L)).copy(id = first.id)
 
         assertEquals(listOf(first, second), visibleScheduleEvents(listOf(second, first), now, ZoneId.of("UTC")))
+    }
+
+    @Test
+    fun duplicateProviderRowsForOneOccurrenceAreDeduplicated() {
+        val occurrence = event(now.plusSeconds(3600), now.plusSeconds(7200))
+        val duplicate = occurrence.copy(id = occurrence.id + 1, calendarColor = 0xff0000)
+        val nextOccurrence = occurrence.copy(
+            startsAt = occurrence.startsAt.plusSeconds(86400),
+            endsAt = occurrence.endsAt.plusSeconds(86400),
+        )
+
+        assertEquals(
+            listOf(occurrence, nextOccurrence),
+            distinctCalendarOccurrences(listOf(occurrence, duplicate, nextOccurrence)),
+        )
     }
 
     @Test

@@ -16,6 +16,9 @@ data class ScheduleEvent(
     val calendarColor: Int?,
 )
 
+internal fun distinctCalendarOccurrences(events: List<ScheduleEvent>): List<ScheduleEvent> =
+    events.distinctBy { it.copy(id = 0, calendarColor = null) }
+
 enum class CountdownUnit { LessThanMinute, Minutes, Hours, Days, Ongoing, AllDay }
 
 data class EventCountdown(val unit: CountdownUnit, val value: Int = 0, val minutes: Int = 0)

@@ -167,6 +167,7 @@ internal fun NotificationPopupItem(
                             .testTag("notification_reply_input:${notification.key}")
                             .semantics { contentDescription = inputLabel },
                         label = { Text(inputLabel) },
+                        shape = RoundedCornerShape(28.dp),
                         maxLines = 4,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                         keyboardActions = KeyboardActions(onSend = { sendReply() }),

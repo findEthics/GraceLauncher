@@ -37,7 +37,7 @@ class CalendarRepository(private val context: Context) {
             val locationIndex = cursor.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_LOCATION)
             val colorIndex = cursor.getColumnIndexOrThrow(CalendarContract.Instances.CALENDAR_COLOR)
 
-            buildList {
+            distinctCalendarOccurrences(buildList {
                 while (cursor.moveToNext()) {
                     val title = cursor.getString(titleIndex)?.trim().orEmpty()
                         .ifBlank { context.getString(R.string.calendar_untitled_event) }
@@ -53,7 +53,7 @@ class CalendarRepository(private val context: Context) {
                         ),
                     )
                 }
-            }
+            })
         }.orEmpty()
     }
 }
