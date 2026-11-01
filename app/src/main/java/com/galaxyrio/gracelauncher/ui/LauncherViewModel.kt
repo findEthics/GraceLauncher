@@ -635,6 +635,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun controlMedia(sessionId: String, command: MediaCommand): Boolean = mediaRepository.command(sessionId, command)
     fun dismissMedia(sessionId: String, revision: Long): Boolean = mediaRepository.dismiss(sessionId, revision)
     fun dismissNotification(key: String, revision: Long): Boolean = appNotifications.dismiss(key, revision)
+    fun dismissNotifications(notifications: List<AppNotification>) =
+        appNotifications.dismissAll(notifications)
     fun openNotification(key: String, revision: Long): Boolean = appNotifications.open(getApplication(), key, revision)
     fun replyNotification(key: String, revision: Long, text: String): NotificationReplyResult =
         appNotifications.reply(getApplication(), key, revision, text)

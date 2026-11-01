@@ -49,6 +49,7 @@ internal fun replyBlockedByKeyguard(requiresAuthentication: Boolean, isDeviceLoc
 
 @MainThread
 internal class AppNotificationStore {
+    private data class NotificationGroup(val user: UserHandle, val packageName: String, val key: String)
     private data class ReplyAction(
         val pendingIntent: PendingIntent,
         val remoteInputs: List<RemoteInput>,
@@ -57,13 +58,15 @@ internal class AppNotificationStore {
     private data class Entry(
         val display: AppNotification,
         val profileUser: UserHandle,
-        val groupKey: String,
+        val group: NotificationGroup,
         val summary: Boolean,
         val contentIntent: PendingIntent?,
         val autoCancel: Boolean,
         val replyAction: ReplyAction?,
     )
     private val entries = linkedMapOf<String, Entry>()
+    // Include filtered children: cancelling their summary could dismiss notifications we never displayed.
+    private val children = mutableMapOf<String, NotificationGroup>()
     private var cancel: ((String) -> Boolean)? = null
     private var resolveWorkProfileSerial: (UserHandle) -> Long? = { null }
     private var visible: (String) -> Boolean = { true }
@@ -77,28 +80,36 @@ internal class AppNotificationStore {
         cancelNotification: (String) -> Boolean,
     ) {
         entries.clear()
+        children.clear()
         cancel = cancelNotification
         this.resolveWorkProfileSerial = resolveWorkProfileSerial
         visible = { true }
-        notifications.forEach { sbn -> parse(sbn)?.let { entries[sbn.key] = it } }
+        notifications.forEach { sbn ->
+            trackChild(sbn)
+            parse(sbn)?.let { entries[sbn.key] = it }
+        }
         publish()
     }
 
     fun posted(sbn: StatusBarNotification) {
         if (cancel == null) return
+        trackChild(sbn)
         val entry = parse(sbn)
         if (entry == null) entries.remove(sbn.key) else entries[sbn.key] = entry
         publish()
     }
 
-    fun removed(key: String) { if (entries.remove(key) != null) publish() }
+    fun removed(key: String) {
+        children.remove(key)
+        if (entries.remove(key) != null) publish()
+    }
 
     fun ranking(isVisible: (String) -> Boolean) { visible = isVisible; publish() }
 
     fun refreshProfileVisibility() = publish()
 
     fun disconnected() {
-        cancel = null; resolveWorkProfileSerial = { null }; visible = { true }; entries.clear(); _state.value = emptyMap()
+        cancel = null; resolveWorkProfileSerial = { null }; visible = { true }; entries.clear(); children.clear(); _state.value = emptyMap()
     }
 
     fun dismiss(key: String, revision: Long): Boolean {
@@ -108,6 +119,32 @@ internal class AppNotificationStore {
         // Wait for onNotificationRemoved; the system owns dismissal, including deleteIntent.
         // In particular, do not cancel an app-wide group when swiping just one child.
         return cancel?.invoke(entry.display.key) == true
+    }
+
+    fun dismissAll(notifications: List<AppNotification>) {
+        val first = notifications.firstOrNull() ?: return
+        if (notifications.any { it.packageName != first.packageName || it.userSerial != first.userSerial }) return
+        val selected = notifications.mapNotNull { notification ->
+            entries[notification.key]?.takeIf {
+                it.display == notification && it.display.canDismiss && visible(notification.key) && hasActiveProfile(it)
+            }
+        }
+        val groups = selected.map { it.group }.toSet()
+        val summaries = entries.values.filter { it.summary && it.group in groups }
+        val accepted = selected.filterNot { it.summary }.filter {
+            dismiss(it.display.key, it.display.revision)
+        }.associate { it.display.key to it.display.revision }
+        summaries.forEach { summary ->
+            val allChildrenDismissed = children.filterValues { it == summary.group }.keys.all { key ->
+                accepted[key] != null && entries[key]?.display?.revision == accepted[key]
+            }
+            if (allChildrenDismissed) dismiss(summary.display.key, summary.display.revision)
+        }
+    }
+
+    private fun trackChild(sbn: StatusBarNotification) {
+        if (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) children.remove(sbn.key)
+        else children[sbn.key] = NotificationGroup(sbn.user, sbn.packageName, sbn.groupKey)
     }
 
     fun open(context: Context, key: String, revision: Long): Boolean {
@@ -147,9 +184,9 @@ internal class AppNotificationStore {
     private fun publish() {
         val eligible = entries.values.filter { visible(it.display.key) && hasActiveProfile(it) }
         val groupsWithChildren = eligible.filterNot { it.summary }
-            .map { Triple(it.display.userSerial, it.display.packageName, it.groupKey) }.toSet()
+            .map { it.group }.toSet()
         _state.value = eligible.filterNot {
-            it.summary && Triple(it.display.userSerial, it.display.packageName, it.groupKey) in groupsWithChildren
+            it.summary && it.group in groupsWithChildren
         }.map { it.display }.sortedByDescending { it.postedAt }
             .groupBy { appNotificationBucketKey(it.packageName, it.userSerial) }
     }
@@ -201,7 +238,7 @@ internal class AppNotificationStore {
                 sbn.postTime, ++revision, sbn.isClearable, notification.contentIntent != null,
                 notification.getLargeIcon(), canReply = replyAction != null, userSerial = userSerial),
             profileUser = sbn.user,
-            groupKey = sbn.groupKey,
+            group = NotificationGroup(sbn.user, sbn.packageName, sbn.groupKey),
             summary = notification.flags and Notification.FLAG_GROUP_SUMMARY != 0,
             contentIntent = notification.contentIntent,
             autoCancel = notification.flags and Notification.FLAG_AUTO_CANCEL != 0,

@@ -46,12 +46,21 @@ class AppNotificationUiTest {
         "My computer: This is a longer message preview. ".repeat(4).trim(), System.currentTimeMillis(), 1, true, true)
     private var notifications by mutableStateOf(listOf(message))
     private val dismissed = mutableListOf<String>()
+    private val bulkDismissals = mutableListOf<List<AppNotification>>()
     private var acceptNotificationDismissals = true
     private var removeNotificationsImmediately = true
     private val opened = mutableListOf<String>()
     private val replies = mutableListOf<Triple<String, Long, String>>()
     private var replyResult = NotificationReplyResult.Dispatched
     private var launchedApps = 0
+
+    private fun dismiss(key: String, revision: Long): Boolean {
+        val current = notifications.firstOrNull { it.key == key && it.revision == revision }
+        if (current == null || !acceptNotificationDismissals) return false
+        dismissed += key
+        if (removeNotificationsImmediately) notifications = notifications.filterNot { it.key == key }
+        return true
+    }
 
     private fun show(
         drawer: Boolean = false,
@@ -76,13 +85,10 @@ class AppNotificationUiTest {
                         initialDrawerOpen = drawer,
                         actions = LauncherActions(
                             shortcuts = { shortcuts }, cachedShortcuts = { shortcuts },
-                            dismissNotification = { key, revision ->
-                                val current = notifications.firstOrNull { it.key == key && it.revision == revision }
-                                if (current == null || !acceptNotificationDismissals) false else {
-                                    dismissed += key
-                                    if (removeNotificationsImmediately) notifications = notifications.filterNot { it.key == key }
-                                    true
-                                }
+                            dismissNotification = ::dismiss,
+                            dismissNotifications = { items ->
+                                bulkDismissals += items
+                                items.forEach { dismiss(it.key, it.revision) }
                             },
                             openNotification = { key, _ -> opened += key; true },
                             replyNotification = { key, revision, text ->
@@ -126,6 +132,7 @@ class AppNotificationUiTest {
         compose.onNodeWithTag("app:${app.key}").performTouchInput { swipeRight() }
         compose.onNodeWithTag("shortcut:compose").assertIsDisplayed()
         compose.runOnIdle { assertEquals(listOf(message.key), dismissed); assertEquals(0, launchedApps); assertTrue(opened.isEmpty()) }
+        compose.runOnIdle { assertTrue(bulkDismissals.isEmpty()) }
     }
 
     @Test fun homeAppLeftSwipeDismissesOnlyOnReleaseAndOnlyWithNotifications() {
@@ -168,6 +175,7 @@ class AppNotificationUiTest {
         compose.onNodeWithTag("app:${workApp.key}").performTouchInput { swipeLeft() }
         compose.runOnIdle {
             assertEquals(work.map { it.key }.toSet(), dismissed.toSet())
+            assertEquals(work.toSet(), bulkDismissals.single().toSet())
             assertEquals(setOf(personal.key, ongoing.key), notifications.map { it.key }.toSet())
         }
     }

@@ -180,9 +180,13 @@ class HomeAgendaHeaderTest {
                 }
                 compose.waitForIdle()
                 compose.runOnIdle { assertTrue("The agenda preference stays enabled", state.settings.calendarAgenda) }
-                node("home_date_text").assertDoesNotExist()
+                node("home_date_text").assertIsDisplayed().assertTextEquals(dateText)
                 node("home_date_battery_text").assertTextEquals(batteryText)
                 node("schedule_line").assertDoesNotExist()
+                assertEquals("An empty agenda centers the status against the clock/date block",
+                    bounds("home_clock_date").center.y, bounds("home_date").center.y, 1f)
+                assertEquals("The whole header is centered on Home",
+                    bounds("home_content").center.x, bounds("home_clock_header_content").center.x, 1f)
                 if (weatherEnabled) node("home_weather").assertIsDisplayed()
                 else {
                     node("home_date").assertIsDisplayed()
@@ -197,7 +201,7 @@ class HomeAgendaHeaderTest {
 
                 compose.runOnIdle { state = state.copy(settings = state.settings.copy(calendarAgenda = false)) }
                 compose.waitForIdle()
-                node("home_date_text").assertDoesNotExist()
+                node("home_date_text").assertIsDisplayed().assertTextEquals(dateText)
                 node("home_date_battery_text").assertTextEquals(batteryText)
                 node("schedule_line").assertDoesNotExist()
                 if (weatherEnabled) node("home_weather").assertIsDisplayed()
@@ -219,7 +223,7 @@ class HomeAgendaHeaderTest {
 
                 compose.runOnIdle { state = state.copy(settings = state.settings.copy(showBatteryPercentage = false)) }
                 compose.waitForIdle()
-                node("home_date_text").assertDoesNotExist()
+                node("home_date_text").assertIsDisplayed().assertTextEquals(dateText)
                 node("home_date_battery_text").assertDoesNotExist()
                 node("schedule_line").assertDoesNotExist()
                 if (weatherEnabled) node("home_weather").assertIsDisplayed()
@@ -233,7 +237,8 @@ class HomeAgendaHeaderTest {
                 }
                 compose.waitForIdle()
                 compose.onAllNodes(hasTestTag("schedule_line"), useUnmergedTree = true).assertCountEquals(2)
-                node("home_date_text").assertIsDisplayed().assertTextEquals("$dateText  $batteryText")
+                node("home_date_text").assertIsDisplayed().assertTextEquals(dateText)
+                node("home_date_battery_text").assertTextEquals(batteryText)
                 compose.runOnIdle { assertTrue("The agenda preference remains enabled", state.settings.calendarAgenda) }
             }
         }

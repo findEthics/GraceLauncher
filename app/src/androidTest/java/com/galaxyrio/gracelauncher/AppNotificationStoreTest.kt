@@ -109,6 +109,118 @@ class AppNotificationStoreTest {
         assertTrue(cancelled.isEmpty())
     }
 
+    @Test fun bulkDismissCancelsTheHiddenSummaryInOneStepButNotOtherGroupsOrProfiles() = main {
+        val workUser = UserHandle.getUserHandleForUid(1_000_000)
+        val summary = sbn(1, builder().setGroup("chat").setGroupSummary(true).build())
+        val first = sbn(2, builder().setGroup("chat").build())
+        val second = sbn(3, builder().setGroup("chat").build())
+        val otherSummary = sbn(4, builder().setGroup("other").setGroupSummary(true).build())
+        val otherChild = sbn(5, builder().setGroup("other").build())
+        val workSummary = sbn(1, builder().setGroup("chat").setGroupSummary(true).build(), user = workUser)
+        val workChild = sbn(2, builder().setGroup("chat").build(), user = workUser)
+        store.connected(listOf(summary, first, second, otherSummary, otherChild, workSummary, workChild),
+            resolveWorkProfileSerial = { if (it == workUser) 77L else null }) { cancelled += it; true }
+        val selected = notifications().filter { it.key == first.key || it.key == second.key }
+        store.dismissAll(selected)
+        assertEquals(setOf(first.key, second.key, summary.key), cancelled.toSet())
+        assertEquals(summary.key, cancelled.last())
+        assertEquals(selected.toSet(), notifications().filter { it.key in selected.map { it.key } }.toSet())
+        cancelled.toList().forEach(store::removed)
+        assertEquals(setOf(otherChild.key, workChild.key), notifications().map { it.key }.toSet())
+    }
+
+    @Test fun bulkDismissDoesNotCancelSummaryForAnOmittedChild() = main {
+        val summary = sbn(1, builder().setGroup("chat").setGroupSummary(true).build())
+        val first = sbn(2, builder().setGroup("chat").build())
+        val second = sbn(3, builder().setGroup("chat").build())
+        listOf(summary, first, second).forEach(store::posted)
+        store.dismissAll(notifications().filter { it.key == first.key })
+        assertEquals(listOf(first.key), cancelled)
+    }
+
+    @Test fun bulkDismissProtectsOngoingRankHiddenAndUnparsedChildren() = main {
+        val summary = sbn(1, builder().setGroup("chat").setGroupSummary(true).build())
+        val first = sbn(2, builder().setGroup("chat").build())
+        val blockers = listOf(
+            builder().setGroup("chat").setOngoing(true).build(),
+            builder().setGroup("chat").build(), // Hidden by ranking below.
+            builder().setGroup("chat").setVisibility(Notification.VISIBILITY_SECRET).build(),
+            builder().setGroup("chat").setContentTitle("").setContentText("").build(),
+        )
+        blockers.forEachIndexed { index, notification ->
+            cancelled.clear()
+            val blocked = sbn(3, notification)
+            store.connected(listOf(summary, first, blocked)) { cancelled += it; true }
+            if (index == 1) store.ranking { it != blocked.key }
+            store.dismissAll(notifications().filter { it.canDismiss })
+            assertEquals("Blocker $index must protect its summary", listOf(first.key), cancelled)
+        }
+    }
+
+    @Test fun bulkDismissProtectsEvenAVisibleSummaryWithOnlyUnparsedChildren() = main {
+        val summary = sbn(1, builder().setGroup("chat").setGroupSummary(true).build())
+        val child = sbn(2, builder().setGroup("chat").setVisibility(Notification.VISIBILITY_SECRET).build())
+        listOf(summary, child).forEach(store::posted)
+        store.dismissAll(notifications())
+        assertTrue(cancelled.isEmpty())
+        store.removed(child.key)
+        store.dismissAll(notifications())
+        assertEquals(listOf(summary.key), cancelled)
+    }
+
+    @Test fun bulkDismissRejectsStaleRevisionsAndMixedProfiles() = main {
+        val workUser = UserHandle.getUserHandleForUid(1_000_000)
+        val summary = sbn(1, builder().setGroup("chat").setGroupSummary(true).build())
+        val child = sbn(2, builder().setGroup("chat").build())
+        store.connected(listOf(summary, child)) { cancelled += it; true }
+        val stale = notifications()
+        store.posted(child)
+        store.dismissAll(stale)
+        assertTrue(cancelled.isEmpty())
+        store.connected(listOf(summary, child, sbn(3, user = workUser)),
+            resolveWorkProfileSerial = { if (it == workUser) 77L else null }) { cancelled += it; true }
+        store.dismissAll(notifications())
+        assertTrue(cancelled.isEmpty())
+    }
+
+    @Test fun bulkDismissDoesNotCancelSummaryAfterFailureOrAnArrivingOrUpdatedChild() = main {
+        val summary = sbn(1, builder().setGroup("chat").setGroupSummary(true).build())
+        val child = sbn(2, builder().setGroup("chat").build())
+        for (scenario in 0..2) {
+            cancelled.clear()
+            store.connected(listOf(summary, child)) { key ->
+                cancelled += key
+                if (key == child.key && scenario > 0) {
+                    store.posted(if (scenario == 1) child else sbn(3, builder().setGroup("chat").build()))
+                }
+                scenario != 0
+            }
+            store.dismissAll(notifications())
+            assertEquals("Scenario $scenario must protect its summary", listOf(child.key), cancelled)
+        }
+    }
+
+    @Test fun bulkDismissHandlesImmediateRemovalCallbacksWithoutResurfacingSummary() = main {
+        val summary = sbn(1, builder().setGroup("chat").setGroupSummary(true).build())
+        val child = sbn(2, builder().setGroup("chat").build())
+        store.connected(listOf(summary, child)) { key -> cancelled += key; store.removed(key); true }
+        store.dismissAll(notifications())
+        assertEquals(listOf(child.key, summary.key), cancelled)
+        assertTrue(notifications().isEmpty())
+    }
+
+    @Test fun bulkDismissRechecksProfileEligibilityBeforeCancellingSummary() = main {
+        val workUser = UserHandle.getUserHandleForUid(1_000_000)
+        var available = true
+        val summary = sbn(1, builder().setGroup("chat").setGroupSummary(true).build(), user = workUser)
+        val child = sbn(2, builder().setGroup("chat").build(), user = workUser)
+        store.connected(listOf(summary, child), resolveWorkProfileSerial = {
+            if (it == workUser && available) 77L else null
+        }) { key -> cancelled += key; available = false; true }
+        store.dismissAll(notifications())
+        assertEquals(listOf(child.key), cancelled)
+    }
+
     @Test fun mediaSecretAndUnclassifiedProfilesAreNotShownAsAppMessages() = main {
         val player = MediaSession(context, "notification-filter-test")
         try {

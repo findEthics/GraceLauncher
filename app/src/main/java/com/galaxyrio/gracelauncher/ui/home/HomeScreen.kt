@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
@@ -39,16 +38,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -181,7 +181,7 @@ fun HomeScreen(
             },
         // The row's 8dp inset keeps icons aligned at 44dp while giving its
         // rounded touch surface breathing room around the icon.
-        contentPadding = PaddingValues(start = LauncherLayout.Start, end = LauncherLayout.End, top = resolvedTop, bottom = 72.dp + bottomInset),
+        contentPadding = PaddingValues(start = LauncherLayout.Start, end = LauncherLayout.End, top = minimumTop, bottom = 72.dp + bottomInset),
         userScrollEnabled = !editingLayout,
         // Feed the native effect at both boundaries even when every row fits.
         // LazyColumn's own effect is disabled to avoid stretching twice.
@@ -204,9 +204,13 @@ fun HomeScreen(
                 weather = uiState.weather.snapshot?.current.takeIf {
                     uiState.settings.weatherEnabled && !uiState.isLoadingSettings && !uiState.settingsLoadFailed
                 },
-                modifier = Modifier.fillMaxWidth().onSizeChanged { headerHeightPx = it.height },
+                // Balance the list's asymmetric insets around the screen center.
+                modifier = Modifier.fillMaxWidth()
+                    .offset(x = (LauncherLayout.End - LauncherLayout.Start) / 2)
+                    .onSizeChanged { headerHeightPx = it.height },
             )
-            Spacer(Modifier.height(2.dp))
+            // Move only the header to the top; retain the widget/favorites anchor.
+            Spacer(Modifier.height(resolvedTop - minimumTop + 2.dp))
         }
         if (hostedWidget != null) item(key = "widget:${homeLayout.widgetId}", contentType = "widget") {
             HomeWidget(homeLayout, hostedWidget, resolvedWidgetHeight, editingLayout,
@@ -324,9 +328,24 @@ internal fun HomeClockHeader(
     val weekday = SimpleDateFormat("EEE", locale).format(Date.from(now))
     val datePattern = DateFormat.getBestDateTimePattern(locale, if (week) "MMMd" else "MMMEd")
     val dateText = SimpleDateFormat(datePattern, locale).format(Date.from(now))
-    val informationText = if (showCalendar) dateText + (battery?.let { "  $it%" } ?: "") else battery?.let { "$it%" }
     val dateDescription = stringResource(if (weather != null) R.string.weather_agenda_action else R.string.date_calendar_action, dateText)
     val clockDescription = stringResource(R.string.clock_action, clockText)
+    val dateStyle = MaterialTheme.typography.bodyLarge.copy(
+        fontWeight = FontWeight.Normal,
+        shadow = appearance.textShadow,
+    )
+    val hasAgenda = showCalendar && events.isNotEmpty()
+    val hasStatus = battery != null || weather?.temperature != null
+    val calendarModifier = Modifier
+        .semantics { contentDescription = dateDescription }
+        .clip(LauncherLayout.RowShape)
+        .then(if (interactive) Modifier.combinedClickable(
+            interactionSource = null,
+            indication = ripple(color = appearance.text),
+            role = Role.Button,
+            onClick = onDateClick,
+            onLongClick = onLongClick,
+        ) else Modifier)
 
     val clockContent: @Composable () -> Unit = {
         if (showClock) ClockFace(
@@ -345,70 +364,97 @@ internal fun HomeClockHeader(
             color = appearance.text,
         )
     }
-    val calendarContent: @Composable () -> Unit = {
-        val shape = LauncherLayout.RowShape
-        if (informationText != null || weather?.temperature != null) Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag(dateTag)
-                .semantics { contentDescription = dateDescription }
-                .clip(shape)
-                .then(if (interactive) Modifier.combinedClickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = ripple(color = appearance.text),
-                    role = Role.Button,
-                    onClick = onDateClick,
-                    onLongClick = onLongClick,
-                ) else Modifier),
-            shape = shape,
-            color = Color.Transparent,
-            contentColor = appearance.text,
-        ) {
-            val dateStyle = MaterialTheme.typography.bodyLarge.copy(
-                fontWeight = FontWeight.Normal,
-                shadow = appearance.textShadow,
+    val dateContent: @Composable () -> Unit = {
+        Row(calendarModifier.padding(horizontal = LauncherLayout.ContentInset, vertical = 10.dp)) {
+            if (week) {
+                ClockTimeLabel(
+                    time = clockText, style = clockStyle, textStyle = dateStyle,
+                    modifier = Modifier.alignByBaseline()
+                        .semantics { contentDescription = clockDescription }
+                        .then(if (interactive) Modifier.combinedClickable(
+                            interactionSource = remember { MutableInteractionSource() }, indication = null,
+                            onClick = onClockClick,
+                            onLongClick = onLongClick,
+                        ) else Modifier),
+                    color = appearance.text,
+                )
+                Text(" · ", modifier = Modifier.alignByBaseline(), color = appearance.text, style = dateStyle)
+            }
+            Text(
+                text = dateText,
+                modifier = Modifier.weight(1f, fill = false).alignByBaseline()
+                    .testTag("${dateTag}_text"),
+                color = appearance.text,
+                style = dateStyle,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Column(Modifier.padding(vertical = LauncherLayout.ContentInset)) {
-                Row(Modifier.padding(horizontal = LauncherLayout.ContentInset, vertical = 2.dp)) {
-                    if (showCalendar && week) {
-                        ClockTimeLabel(
-                            time = clockText, style = clockStyle, textStyle = dateStyle,
-                            modifier = Modifier.alignByBaseline()
-                                .semantics { contentDescription = clockDescription }
-                                .then(if (interactive) Modifier.combinedClickable(
-                                    interactionSource = remember { MutableInteractionSource() }, indication = null,
-                                    onClick = onClockClick,
-                                    onLongClick = onLongClick,
-                                ) else Modifier),
-                            color = appearance.text,
-                        )
-                        Text(" · ", modifier = Modifier.alignByBaseline(), color = appearance.text, style = dateStyle)
-                    }
-                    if (informationText != null) Text(
-                        text = informationText,
-                        modifier = Modifier.weight(1f, fill = false).alignByBaseline()
-                            .testTag(if (showCalendar) "${dateTag}_text" else "${dateTag}_battery_text"),
-                        color = appearance.text,
-                        style = dateStyle,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (weather?.temperature != null) {
-                        if (informationText != null) Spacer(Modifier.width(10.dp))
-                        HomeWeather(weather, appearance.text, dateStyle, Modifier.alignByBaseline())
-                    }
-                }
-                if (showCalendar) events.forEach { event ->
-                    key(event.id, event.startsAt) { ScheduleLine(event = event, now = now) }
-                }
+        }
+    }
+    val statusContent: @Composable (Modifier) -> Unit = { statusModifier ->
+        Row(statusModifier.testTag(dateTag).then(calendarModifier)
+            .padding(horizontal = LauncherLayout.ContentInset, vertical = 10.dp)) {
+            if (battery != null) Text(
+                text = "$battery%",
+                modifier = Modifier.alignByBaseline().testTag("${dateTag}_battery_text"),
+                color = appearance.text,
+                style = dateStyle,
+                maxLines = 1,
+            )
+            if (weather?.temperature != null) {
+                if (battery != null) Spacer(Modifier.width(10.dp))
+                HomeWeather(weather, appearance.text, dateStyle, Modifier.alignByBaseline())
             }
         }
     }
-    Column(modifier) {
-        if (calendarAboveClock) calendarContent() else clockContent()
-        Spacer(Modifier.height(if (showClock && (showCalendar || weather != null)) 2.dp else 0.dp)
-            .onGloballyPositioned { onAnchorOffsetChange(it.positionInParent().y.roundToInt()) })
-        if (calendarAboveClock) clockContent() else calendarContent()
+    BoxWithConstraints(modifier) {
+        val leftWidth = (maxWidth - 16.dp) * 0.4f
+        val dividerModifier = Modifier.drawBehind {
+            if (hasAgenda || hasStatus) {
+                val x = (leftWidth + 8.dp).toPx()
+                drawLine(appearance.text, Offset(x, 0f), Offset(x, size.height), strokeWidth = 1.dp.toPx())
+            }
+        }
+        if (!hasAgenda) {
+            Row(dividerModifier.align(Alignment.TopCenter).testTag("home_clock_header_content"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.width(leftWidth).testTag("home_clock_date")) {
+                    if (calendarAboveClock) dateContent() else clockContent()
+                    Spacer(Modifier.height(0.dp)
+                        .onGloballyPositioned { onAnchorOffsetChange(it.positionInParent().y.roundToInt()) })
+                    if (calendarAboveClock) clockContent() else dateContent()
+                }
+                if (hasStatus) {
+                    Spacer(Modifier.width(16.dp))
+                    statusContent(Modifier.weight(1f, fill = false))
+                }
+            }
+        } else {
+            Column(Modifier.fillMaxWidth().then(dividerModifier).testTag("home_clock_header_content")) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.width(leftWidth)) {
+                        if (calendarAboveClock) dateContent() else clockContent()
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f).then(calendarModifier)) {
+                        events.forEach { event ->
+                            key(event.id, event.startsAt) { ScheduleLine(event = event, now = now) }
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth()
+                    .onGloballyPositioned { onAnchorOffsetChange(it.positionInParent().y.roundToInt()) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.width(leftWidth)) {
+                        if (calendarAboveClock) clockContent() else dateContent()
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    if (hasStatus) statusContent(Modifier.weight(1f))
+                }
+            }
+        }
     }
 }
 

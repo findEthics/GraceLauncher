@@ -340,6 +340,7 @@ fun LauncherRoute(
         openAccessibilitySettings = { openSystemApp(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
         dismissMedia = viewModel::dismissMedia,
         dismissNotification = viewModel::dismissNotification,
+        dismissNotifications = viewModel::dismissNotifications,
         openNotification = { key, revision ->
             viewModel.openNotification(key, revision).also { opened ->
                 if (!opened) Toast.makeText(context, R.string.notification_unavailable, Toast.LENGTH_SHORT).show()
@@ -684,9 +685,7 @@ internal fun LauncherScreen(
         },
     )
     val homeRowGestures = rowGestures.copy(onDismissNotifications = { app ->
-        latestUiState.notificationsFor(app).filter { it.canDismiss }.forEach { notification ->
-            actions.dismissNotification(notification.key, notification.revision)
-        }
+        actions.dismissNotifications(latestUiState.notificationsFor(app).filter { it.canDismiss })
     })
     val highlightedAppKey = (overlay as? LauncherOverlay.AppDetails)?.app?.key
     val openPrivateSpace: (Rect) -> Unit = { bounds ->

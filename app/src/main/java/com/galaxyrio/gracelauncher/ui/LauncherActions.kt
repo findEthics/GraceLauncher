@@ -10,6 +10,7 @@ import com.galaxyrio.gracelauncher.data.LauncherSettings
 import com.galaxyrio.gracelauncher.data.ClockStyle
 import com.galaxyrio.gracelauncher.data.LauncherShortcut
 import com.galaxyrio.gracelauncher.data.ScheduleEvent
+import com.galaxyrio.gracelauncher.data.notifications.AppNotification
 import com.galaxyrio.gracelauncher.data.notifications.NotificationReplyResult
 import com.galaxyrio.gracelauncher.data.ShortcutResult
 import com.galaxyrio.gracelauncher.data.ShortcutStatus
@@ -64,6 +65,7 @@ data class LauncherActions(
     val controlMedia: (String, MediaCommand) -> Unit = { _, _ -> },
     val dismissMedia: (String, Long) -> Boolean = { _, _ -> false },
     val dismissNotification: (String, Long) -> Boolean = { _, _ -> false },
+    val dismissNotifications: (List<AppNotification>) -> Unit = {},
     val openNotification: (String, Long) -> Boolean = { _, _ -> false },
     val requestWeatherAccess: () -> Unit = {},
     val requestCalendarAccess: () -> Unit = {},

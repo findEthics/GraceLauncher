@@ -145,6 +145,7 @@ internal fun NotificationPopupItem(
                         value = draft,
                         onValueChange = { if (gesturesEnabled) { draft = it; replyResult = null } },
                         enabled = gesturesEnabled,
+                        shape = RoundedCornerShape(28.dp),
                         modifier = Modifier.fillMaxWidth().focusRequester(focusRequester)
                             .onPreviewKeyEvent { event ->
                                 if (!gesturesEnabled || (event.key != Key.Enter && event.key != Key.NumPadEnter)) false
