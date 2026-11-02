@@ -24,6 +24,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -37,6 +38,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.galaxyrio.gracelauncher.R
+import java.net.URI
 
 @Composable
 internal fun AssistantLifecycle(assistant: AssistantController) {
@@ -89,6 +91,10 @@ internal fun AssistantChatWindow(
     }
     val send = { if (!busy && chat.draft.isNotBlank()) onSend() }
     val messageDescription = stringResource(R.string.assistant_message)
+    val removeWebDescription = stringResource(R.string.assistant_remove_web_search)
+    val toolsDescription = stringResource(R.string.assistant_tools)
+    val uriHandler = LocalUriHandler.current
+    var toolsExpanded by remember { mutableStateOf(false) }
     Surface(Modifier.fillMaxSize().testTag("assistant_chat_window")) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
             if (chat.contextDropped) Text(stringResource(R.string.assistant_context_rolled), Modifier.padding(16.dp).testTag("assistant_context_notice"), style = MaterialTheme.typography.bodySmall)
@@ -108,8 +114,18 @@ internal fun AssistantChatWindow(
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                             Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                                 if (turn.action) Text(stringResource(R.string.assistant_action_result), style = MaterialTheme.typography.labelSmall)
+                                if (turn.webSearch) Text(stringResource(R.string.assistant_web_search), style = MaterialTheme.typography.labelSmall)
+                                if (turn.searchWarning.isNotBlank()) Text(turn.searchWarning,
+                                    Modifier.testTag("assistant_search_warning:${turn.id}"), color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall)
                                 Text(turn.response.ifBlank { stringResource(R.string.assistant_processing) },
                                     Modifier.testTag("assistant_response:${turn.id}"))
+                                turn.sources.forEachIndexed { index, source ->
+                                    TextButton(onClick = { if (WebSource.safeUrl(source.url)) runCatching { uriHandler.openUri(source.url) } },
+                                        modifier = Modifier.testTag("assistant_source:${turn.id}:$index")) {
+                                        Text("[${index + 1}] ${source.title} — ${URI(source.url).host}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
                             }
                         }
                     }
@@ -117,10 +133,15 @@ internal fun AssistantChatWindow(
             }
             if (status.isNotBlank() && status != chat.turns.lastOrNull()?.takeIf { it.complete }?.response)
                 Text(status, Modifier.padding(horizontal = 16.dp).testTag("assistant_status"), style = MaterialTheme.typography.bodySmall)
-            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Bottom) {
+            Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                if (chat.webSearchEnabled) InputChip(selected = true,
+                    onClick = { chat.webSearchEnabled = false },
+                    label = { Text(stringResource(R.string.assistant_web_search)) }, trailingIcon = { Text("×") },
+                    modifier = Modifier.testTag("assistant_web_chip")
+                        .semantics { contentDescription = removeWebDescription })
                 OutlinedTextField(
                     value = chat.input, onValueChange = { chat.input = it },
-                    modifier = Modifier.weight(1f).focusRequester(focus).onFocusChanged { onFocus(it.isFocused) }
+                    modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { onFocus(it.isFocused) }
                         .semantics { contentDescription = messageDescription }
                         .testTag("assistant_chat_input").onPreviewKeyEvent { event ->
                             if (event.key != Key.Enter && event.key != Key.NumPadEnter) false
@@ -137,6 +158,18 @@ internal fun AssistantChatWindow(
                         },
                     shape = RoundedCornerShape(28.dp), maxLines = 5,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }),
+                    leadingIcon = {
+                        Box {
+                            IconButton(onClick = { toolsExpanded = true }, modifier = Modifier.testTag("assistant_tools")) {
+                                Text("+", Modifier.semantics { contentDescription = toolsDescription }, style = MaterialTheme.typography.titleLarge)
+                            }
+                            DropdownMenu(expanded = toolsExpanded, onDismissRequest = { toolsExpanded = false }) {
+                                DropdownMenuItem(text = { Text(stringResource(R.string.assistant_web_search)) },
+                                    onClick = { chat.webSearchEnabled = true; toolsExpanded = false },
+                                    modifier = Modifier.testTag("assistant_web_search_option"))
+                            }
+                        }
+                    },
                     trailingIcon = {
                         if (busy) IconButton(
                             onClick = onStop,

@@ -4,6 +4,38 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AssistantChatStateTest {
+    @Test fun searchSelectionIsSessionScopedAndActionsStayLocal() {
+        val chat = AssistantChatState()
+        assertFalse(chat.webSearchEnabled)
+        chat.webSearchEnabled = true
+        val first = chat.begin("news", false)
+        chat.searchDetails(first, listOf(WebSource("Source", "https://example.org", "text")), "warning")
+        chat.update(first, "answer", complete = true, inContext = true)
+        chat.open(); chat.minimize(); chat.open()
+        assertTrue(chat.webSearchEnabled)
+        assertTrue(chat.turns.first().webSearch)
+        chat.begin("!Turn on the flashlight", true)
+        assertFalse(chat.turns.last().webSearch)
+        assertTrue(chat.webSearchEnabled)
+        chat.webSearchEnabled = false
+        chat.begin("offline", false)
+        assertFalse(chat.turns.last().webSearch)
+        chat.clear()
+        chat.searchDetails(first, emptyList(), "late")
+        assertFalse(chat.webSearchEnabled)
+        assertTrue(chat.turns.isEmpty())
+    }
+    @Test fun sourceLinksAndQueriesAreValidatedAndUnicodeBoundsPreserveCharacters() {
+        for (url in listOf("javascript:alert(1)", "file:///etc/passwd", "intent://example", "https://user:pass@example.org", "https:///broken"))
+            assertFalse(WebSource.safeUrl(url))
+        assertTrue(WebSource.safeUrl("https://example.org/page?q=test"))
+        for (query in listOf("", "x".repeat(257), "news\nnow")) {
+            try { TavilySearch.validateQuery(query); fail("Invalid query accepted") } catch (_: WebSearchFailure) { }
+        }
+        TavilySearch.validateQuery("current Android news")
+        assertEquals("é😀", AssistantController.utf8Prefix("é😀x", 6))
+        assertEquals("é", AssistantController.utf8Prefix("é😀x", 5))
+    }
     @Test fun onlyAnExplicitLeadingBangIsAnAction() {
         assertEquals("Set a timer for five minutes", AssistantChatState.actionRequest("!Set a timer for five minutes"))
         assertEquals("Set a timer for five minutes", AssistantChatState.actionRequest("! Set a timer for five minutes"))

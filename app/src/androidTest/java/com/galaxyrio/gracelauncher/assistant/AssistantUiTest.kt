@@ -22,6 +22,37 @@ import org.junit.Test
 class AssistantUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
+    @Test fun webSearchMenuSelectsPersistentRemovableChipWithoutEditingDraft() {
+        val chat = AssistantChatState().apply { draft = "keep my draft" }
+        compose.setContent { MaterialTheme {
+            AssistantChatWindow(chat, false, true, "", onSend = { chat.begin(chat.draft, false) }, onStop = {}, onClose = chat::clear)
+        } }
+        compose.onNodeWithTag("assistant_web_chip").assertDoesNotExist()
+        compose.onNodeWithTag("assistant_tools").performClick()
+        compose.onNodeWithTag("assistant_web_search_option").performClick()
+        compose.onNodeWithTag("assistant_web_chip").assertIsSelected()
+        compose.runOnIdle { assertEquals("keep my draft", chat.draft) }
+        compose.onNodeWithTag("assistant_chat_input").performImeAction()
+        compose.runOnIdle { assertTrue(chat.turns.single().webSearch); assertTrue(chat.webSearchEnabled) }
+        compose.onNodeWithTag("assistant_web_chip").performClick().assertDoesNotExist()
+        compose.runOnIdle { assertFalse(chat.webSearchEnabled) }
+    }
+
+    @Test fun searchFailureWarningAndStructuredSourcesRemainVisible() {
+        val chat = AssistantChatState()
+        chat.webSearchEnabled = true
+        val turn = chat.begin("news", false)
+        chat.searchDetails(turn, listOf(WebSource("Example source", "https://example.org", "excerpt")), "Search failed; unverified offline answer")
+        chat.update(turn, "Offline answer", complete = true)
+        compose.setContent { MaterialTheme {
+            AssistantChatWindow(chat, false, true, "", onSend = {}, onStop = {}, onClose = chat::clear)
+        } }
+        closeSoftKeyboard()
+        compose.onNodeWithTag("assistant_search_warning:$turn").assertIsDisplayed()
+        compose.onNodeWithTag("assistant_source:$turn:0").assertHasClickAction().assertIsDisplayed()
+        compose.onNodeWithTag("assistant_response:$turn").assertTextEquals("Offline answer")
+    }
+
     @Test fun advancedExposesGemma4WithoutSpeechSetup() {
         compose.setContent { MaterialTheme { AssistantSettings() } }
         compose.onNodeWithTag("assistant_model_Gemma4").assertExists()

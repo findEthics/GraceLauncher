@@ -6,6 +6,12 @@ plugins {
     alias(libs.plugins.aboutlibraries)
 }
 
+// Only this personal-use credential is embedded; never package the .env file itself.
+val tavilyKey = providers.fileContents(rootProject.layout.projectDirectory.file(".env")).asText.orNull
+    ?.lineSequence()?.firstOrNull { it.trimStart().startsWith("TAVILY_API_KEY=") }
+    ?.substringAfter('=')?.trim()?.removeSurrounding("\"")?.removeSurrounding("'").orEmpty()
+require(tavilyKey.all { it.isLetterOrDigit() || it == '-' || it == '_' }) { "Invalid Tavily key format" }
+
 android {
     namespace = "com.galaxyrio.gracelauncher"
     compileSdk = 37
@@ -19,6 +25,7 @@ android {
         versionName = "1.2.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "TAVILY_API_KEY", "\"$tavilyKey\"")
     }
 
     buildTypes {
@@ -35,6 +42,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     androidResources {
         // Map bundled fonts directly; variable weights share the same native

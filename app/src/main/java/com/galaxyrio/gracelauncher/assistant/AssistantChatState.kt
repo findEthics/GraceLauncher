@@ -9,6 +9,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 internal data class ChatTurn(
     val id: Long, val request: String, val action: Boolean,
     val response: String = "", val complete: Boolean = false, val inContext: Boolean = false,
+    val webSearch: Boolean = false, val sources: List<WebSource> = emptyList(), val searchWarning: String = "",
 )
 
 /** RAM only: never use a saved-state registry, preferences, or a database for this state. */
@@ -20,6 +21,7 @@ class AssistantChatState {
         set(value) { input = TextFieldValue(value, TextRange(value.length)) }
     internal var turns by mutableStateOf<List<ChatTurn>>(emptyList()); private set
     var contextDropped by mutableStateOf(false); private set
+    var webSearchEnabled by mutableStateOf(false)
     private var nextId = 0L // Never reuse an id after Close; late completions cannot enter the new chat.
 
     fun open(actionShortcut: Boolean = false) {
@@ -27,9 +29,9 @@ class AssistantChatState {
         visible = true
     }
     fun minimize() { visible = false }
-    fun clear() { visible = false; draft = ""; turns = emptyList(); contextDropped = false }
+    fun clear() { visible = false; draft = ""; turns = emptyList(); contextDropped = false; webSearchEnabled = false }
     internal fun begin(request: String, action: Boolean): Long {
-        val turn = ChatTurn(++nextId, request, action)
+        val turn = ChatTurn(++nextId, request, action, webSearch = webSearchEnabled && !action)
         turns = turns + turn
         draft = ""
         return turn.id
@@ -38,6 +40,9 @@ class AssistantChatState {
         turns = turns.map { if (it.id == id && !it.complete) it.copy(response = response, complete = complete, inContext = inContext) else it }
     }
     internal fun response(id: Long) = turns.firstOrNull { it.id == id }?.response.orEmpty()
+    internal fun searchDetails(id: Long, sources: List<WebSource>, warning: String) {
+        turns = turns.map { if (it.id == id && !it.complete) it.copy(sources = sources, searchWarning = warning) else it }
+    }
 
     internal fun context(byteBudget: Int): List<ChatTurn> {
         val eligible = turns.filter { it.complete && it.inContext }.toMutableList()

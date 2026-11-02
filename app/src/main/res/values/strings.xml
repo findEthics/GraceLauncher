@@ -519,12 +519,20 @@
     </plurals>
     <!-- Offline assistant -->
     <string name="assistant_title">Offline assistant</string>
-    <string name="assistant_privacy">Chat and inference stay on this device. Conversations are kept only in memory and cleared when closed. Downloads require internet; there is no cloud fallback. Your keyboard and external apps may have their own network features.</string>
+    <string name="assistant_privacy">Inference stays on this device. Conversations are kept only in memory and cleared when closed. Optional Web search sends model-generated queries to Tavily; these may include details from this chat. The full transcript is not uploaded. Downloads also require internet; there is no cloud inference fallback. Your keyboard and external apps may have their own network features.</string>
     <string name="assistant_enable">Enable chat assistant on Home</string>
     <string name="assistant_show_home_button">Show chat button on Home</string>
     <string name="assistant_show_home_button_hint">When hidden, use Space, !, or @ on the Home keyboard to open chat. The assistant must remain enabled.</string>
     <string name="assistant_open_chat">Open chat assistant</string>
-    <string name="assistant_chat_hint">On Home, Space or @ opens chat without adding text; ! opens action input. Chat normally, or start one complete English action with !. Enter or keyboard Send submits; Shift+Enter adds a line. Actions must be single-line. Back closes and clears chat.</string>
+    <string name="assistant_chat_hint">On Home, Space or @ opens chat without adding text; ! opens action input. Chat normally, or start one complete English action with !. Use + to enable Web search for this chat: the model decides when and what to search, with at most two searches per reply. Tap × to remove it. Search queries may contain chat details. Phone actions stay local. A search failure allows an unverified offline answer with a warning. Enter or keyboard Send submits; Shift+Enter adds a line. Actions must be single-line. Back closes and clears chat.</string>
+    <string name="assistant_tools">Chat tools</string>
+    <string name="assistant_web_search">Web search</string>
+    <string name="assistant_remove_web_search">Remove Web search</string>
+    <string name="assistant_search_key_error">Web search unavailable: missing or invalid Tavily key. Any answer below is not freshly verified.</string>
+    <string name="assistant_search_limit_error">Web search limit reached. Any answer below is not freshly verified.</string>
+    <string name="assistant_search_network_error">Web search failed or timed out. Any answer below is not freshly verified.</string>
+    <string name="assistant_search_results_error">Web search returned no usable sources. Any answer below is not freshly verified.</string>
+    <string name="assistant_search_request_error">The model did not produce one valid search query. Any answer below is not freshly verified.</string>
     <string name="assistant_message">Message</string>
     <string name="assistant_stop">Stop</string>
     <string name="assistant_action_result">Action result</string>
