@@ -29,7 +29,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
@@ -134,11 +138,13 @@ internal fun AssistantChatWindow(
             if (status.isNotBlank() && status != chat.turns.lastOrNull()?.takeIf { it.complete }?.response)
                 Text(status, Modifier.padding(horizontal = 16.dp).testTag("assistant_status"), style = MaterialTheme.typography.bodySmall)
             Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                if (chat.webSearchEnabled) InputChip(selected = true,
-                    onClick = { chat.webSearchEnabled = false },
-                    label = { Text(stringResource(R.string.assistant_web_search)) }, trailingIcon = { Text("×") },
-                    modifier = Modifier.testTag("assistant_web_chip")
-                        .semantics { contentDescription = removeWebDescription })
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (chat.webSearchEnabled) InputChip(selected = true,
+                        onClick = { chat.webSearchEnabled = false },
+                        label = { Text(stringResource(R.string.assistant_web_search)) }, trailingIcon = { Text("×") },
+                        modifier = Modifier.testTag("assistant_web_chip")
+                            .semantics { contentDescription = removeWebDescription })
+                }
                 OutlinedTextField(
                     value = chat.input, onValueChange = { chat.input = it },
                     modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { onFocus(it.isFocused) }
@@ -163,10 +169,14 @@ internal fun AssistantChatWindow(
                             IconButton(onClick = { toolsExpanded = true }, modifier = Modifier.testTag("assistant_tools")) {
                                 Text("+", Modifier.semantics { contentDescription = toolsDescription }, style = MaterialTheme.typography.titleLarge)
                             }
-                            DropdownMenu(expanded = toolsExpanded, onDismissRequest = { toolsExpanded = false }) {
+                            DropdownMenu(expanded = toolsExpanded, onDismissRequest = { toolsExpanded = false },
+                                shape = RoundedCornerShape(28.dp), modifier = Modifier.testTag("assistant_tools_menu")) {
                                 DropdownMenuItem(text = { Text(stringResource(R.string.assistant_web_search)) },
-                                    onClick = { chat.webSearchEnabled = true; toolsExpanded = false },
-                                    modifier = Modifier.testTag("assistant_web_search_option"))
+                                    leadingIcon = { Checkbox(checked = chat.webSearchEnabled, onCheckedChange = null) },
+                                    onClick = { chat.webSearchEnabled = !chat.webSearchEnabled; toolsExpanded = false },
+                                    modifier = Modifier.testTag("assistant_web_search_option").semantics {
+                                        role = Role.Checkbox; toggleableState = ToggleableState(chat.webSearchEnabled)
+                                    })
                             }
                         }
                     },

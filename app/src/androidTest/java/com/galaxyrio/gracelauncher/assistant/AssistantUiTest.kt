@@ -29,8 +29,17 @@ class AssistantUiTest {
         } }
         compose.onNodeWithTag("assistant_web_chip").assertDoesNotExist()
         compose.onNodeWithTag("assistant_tools").performClick()
+        compose.onNodeWithTag("assistant_web_search_option").assertIsOff()
+        val screenshot = File(InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir("test-screenshots"), "assistant-tools-rounded.png")
+        screenshot.outputStream().use { compose.onNodeWithTag("assistant_tools_menu").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it) }
         compose.onNodeWithTag("assistant_web_search_option").performClick()
         compose.onNodeWithTag("assistant_web_chip").assertIsSelected()
+            .assertContentDescriptionEquals(compose.activity.getString(R.string.assistant_remove_web_search))
+        compose.onNodeWithTag("assistant_tools").performClick()
+        compose.onNodeWithTag("assistant_web_search_option").assertIsOn().performClick()
+        compose.onNodeWithTag("assistant_web_chip").assertDoesNotExist()
+        compose.onNodeWithTag("assistant_tools").performClick()
+        compose.onNodeWithTag("assistant_web_search_option").assertIsOff().performClick()
         compose.runOnIdle { assertEquals("keep my draft", chat.draft) }
         compose.onNodeWithTag("assistant_chat_input").performImeAction()
         compose.runOnIdle { assertTrue(chat.turns.single().webSearch); assertTrue(chat.webSearchEnabled) }
