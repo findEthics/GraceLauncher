@@ -36,6 +36,7 @@ internal data class SearchContact(
     val name: String,
     val photo: Uri?,
     val numbers: List<String>,
+    val dialNumbers: List<String> = numbers,
 ) {
     val searchName = SearchName(name)
     fun score(query: SearchQuery): Int? = searchName.score(query)
@@ -75,14 +76,17 @@ internal class SearchContacts(context: Context) {
             }
         }
         val numbers = mutableMapOf<Long, MutableSet<String>>()
+        val dialNumbers = mutableMapOf<Long, MutableSet<String>>()
         resolver.query(Phone.CONTENT_URI, arrayOf(Phone.CONTACT_ID, Phone.NUMBER), null, null, null)?.use { cursor ->
             while (cursor.moveToNext()) {
                 currentCoroutineContext().ensureActive()
-                val number = cursor.getString(1)?.filter(Char::isDigit).orEmpty()
+                val raw = cursor.getString(1).orEmpty()
+                val number = raw.filter(Char::isDigit)
                 if (number.isNotEmpty()) numbers.getOrPut(cursor.getLong(0)) { linkedSetOf() }.add(number)
+                if (number.isNotEmpty()) dialNumbers.getOrPut(cursor.getLong(0)) { linkedSetOf() }.add(raw)
             }
         }
-        contacts.values.map { it.copy(numbers = numbers[it.id]?.toList().orEmpty()) }
+        contacts.values.map { it.copy(numbers = numbers[it.id]?.toList().orEmpty(), dialNumbers = dialNumbers[it.id]?.toList().orEmpty()) }
             .sortedWith(compareBy({ appSortKey(it.name) }, { it.id }))
     }
 

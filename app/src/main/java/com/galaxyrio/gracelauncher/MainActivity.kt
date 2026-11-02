@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         appTransitions.onHomeIntent(intent)
+        if (intent.action == Intent.ACTION_ASSIST) launcherViewModel.assistant.openChat()
     }
 
     override fun onResume() {
@@ -53,8 +54,13 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (intent.action == Intent.ACTION_ASSIST) {
+            launcherViewModel.magic.close()
+            launcherViewModel.assistant.openChat()
+        }
         if (intent.getBooleanExtra(EXTRA_EDIT_WIDGET, false)) { widgetEditRequest++; intent.removeExtra(EXTRA_EDIT_WIDGET) }
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            launcherViewModel.magic.close()
             launcherViewModel.requestReturnHome()
             appTransitions.onHomeIntent(intent)
         }
@@ -78,6 +84,7 @@ class MainActivity : ComponentActivity() {
     // AndroidX marks its override restricted; this must still delegate to Android's public dispatch chain.
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (launcherViewModel.magic.hardwareKey(event, currentFocus?.onCheckIsTextEditor() == true)) return true
         if (launcherViewModel.assistant.hardwareKey(event, currentFocus?.onCheckIsTextEditor() == true)) return true
         return super.dispatchKeyEvent(event)
     }

@@ -103,7 +103,7 @@ class AssistantController(private val context: Context, private val scope: Corou
         val character = event.unicodeChar
         val plainSpace = event.keyCode == KeyEvent.KEYCODE_SPACE && !event.isShiftPressed && !event.isAltPressed
         if (!chat.visible && enabled && homeShortcutEligible && !textEditorFocused && !event.isCtrlPressed && !event.isMetaPressed &&
-            (character == '!'.code || character == '@'.code || plainSpace) && event.repeatCount == 0) {
+            (character == '!'.code || plainSpace) && event.repeatCount == 0) {
             shortcutKey = event.keyCode
             openChat(actionShortcut = character == '!'.code)
             return true

@@ -482,6 +482,7 @@ fun LauncherRoute(
             widgetEditRequest = widgetEditRequest,
             returnHomeRequests = viewModel.returnHomeRequests,
             assistant = viewModel.assistant,
+            magic = viewModel.magic,
             onDateClick = { permissionLauncher.launch(Manifest.permission.READ_CALENDAR) },
             onClockClick = {
                 val key = uiState.settings.clockAppKey
@@ -520,6 +521,7 @@ internal fun LauncherScreen(
     initialDrawerOpen: Boolean = false,
     widgetEditRequest: Int = 0,
     assistant: com.galaxyrio.gracelauncher.assistant.AssistantController? = null,
+    magic: com.galaxyrio.gracelauncher.magic.MagicController? = null,
 ) {
     if (assistant != null) com.galaxyrio.gracelauncher.assistant.AssistantLifecycle(assistant)
     var drawerOpen by rememberSaveable { mutableStateOf(initialDrawerOpen) }
@@ -561,7 +563,7 @@ internal fun LauncherScreen(
     val searchAlpha by animateFloatAsState(if (searching) 1f else 0f, tween(210), label = "searchFade")
     val isSettings = overlay == LauncherOverlay.Settings || overlay is LauncherOverlay.FolderSettings ||
         overlay is LauncherOverlay.SettingsDestination || overlay is LauncherOverlay.IconDesigner
-    val fullScreen = assistant?.chat?.visible == true || isSettings || overlay == LauncherOverlay.Search || overlay == LauncherOverlay.Favorites ||
+    val fullScreen = magic?.session != null || assistant?.chat?.visible == true || isSettings || overlay == LauncherOverlay.Search || overlay == LauncherOverlay.Favorites ||
         overlay is LauncherOverlay.IconDesigner || overlay is LauncherOverlay.EditPopup
     val privateAppEditing = when (val current = overlay) {
         is LauncherOverlay.AppDetails -> current.app.isPrivateSpace
@@ -614,11 +616,25 @@ internal fun LauncherScreen(
         allowPullDown = !fullScreen && !editingHome && overlay == null,
     )
     val homeGesturesEnabled = overlay == null && !fullScreen && !drawerOpen && !editingHome && backProgress.value == 0f
-    SideEffect { assistant?.homeShortcutEligible = homeGesturesEnabled }
-    DisposableEffect(assistant) { onDispose { assistant?.homeShortcutEligible = false } }
+    SideEffect {
+        assistant?.homeShortcutEligible = homeGesturesEnabled
+        magic?.eligible = homeGesturesEnabled
+        magic?.onOpenSearch = {
+            searchQuery.edit { replace(0, length, "") }
+            overlay = LauncherOverlay.search(latestUiState.settings.search.enabled)
+        }
+        magic?.onSearchText = { text -> searchQuery.edit { append(text) } }
+    }
+    DisposableEffect(assistant, magic) { onDispose {
+        assistant?.homeShortcutEligible = false
+        magic?.eligible = false
+        magic?.searchOpening = false
+        magic?.onOpenSearch = null
+        magic?.onSearchText = null
+    } }
 
     LaunchedEffect(returnHomeRequests) {
-        returnHomeRequests.collect { assistant?.chat?.minimize(); drawerOpen = false; selectedLetter = null; overlay = null; editingHome = false }
+        returnHomeRequests.collect { magic?.close(); assistant?.chat?.minimize(); drawerOpen = false; selectedLetter = null; overlay = null; editingHome = false }
     }
     LaunchedEffect(widgetEditRequest) {
         if (widgetEditRequest > 0) { drawerOpen = false; selectedLetter = null; overlay = null; editingHome = true }
@@ -917,6 +933,7 @@ internal fun LauncherScreen(
           searchEnterAlpha = searchAlpha, searchQuery = searchQuery,
       )
       if (assistant != null) com.galaxyrio.gracelauncher.assistant.AssistantChat(assistant)
+      if (magic != null) com.galaxyrio.gracelauncher.magic.MagicCommandWindow(magic, uiState.allApps, actions.launchShortcut)
     }
 }
 

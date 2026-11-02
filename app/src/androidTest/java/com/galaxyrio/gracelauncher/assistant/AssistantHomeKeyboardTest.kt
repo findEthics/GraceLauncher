@@ -4,8 +4,6 @@ import android.view.KeyEvent
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import com.galaxyrio.gracelauncher.MainActivity
 import com.galaxyrio.gracelauncher.ui.LauncherViewModel
 import org.junit.After
@@ -38,12 +36,11 @@ class AssistantHomeKeyboardTest {
             assistant.enable(originallyEnabled)
         }
     }
-    @Test fun hiddenChatButtonLeavesBothShortcutsAvailable() {
+    @Test fun hiddenChatButtonLeavesAssistantShortcutsAvailable() {
         compose.runOnUiThread { assistant.showHomeButton(false) }
         compose.onNodeWithTag("assistant_chat_button").assertDoesNotExist()
         for ((key, prefix, meta) in listOf(
             Triple(KeyEvent.KEYCODE_1, "!", KeyEvent.META_SHIFT_ON),
-            Triple(KeyEvent.KEYCODE_2, "", KeyEvent.META_SHIFT_ON),
             Triple(KeyEvent.KEYCODE_SPACE, "", 0),
         )) {
             compose.runOnUiThread {
@@ -97,24 +94,6 @@ class AssistantHomeKeyboardTest {
         compose.runOnUiThread { assertTrue(assistant.chat.turns.isEmpty()); assertEquals("", assistant.chat.draft) }
     }
 
-    @Test fun shiftedAtOpensWithoutAddingTextAndRapidFollowingTypingIsPreserved() {
-        compose.runOnUiThread {
-            val down = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_2, 0, KeyEvent.META_SHIFT_ON)
-            assertEquals('@'.code, down.unicodeChar)
-            assertTrue(compose.activity.dispatchKeyEvent(down))
-            assertEquals("", assistant.chat.draft)
-            assertTrue(compose.activity.dispatchKeyEvent(KeyEvent.changeTimeRepeat(down, 1, 1)))
-            assertTrue(compose.activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_H)))
-            compose.activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_H))
-            assertTrue(compose.activity.dispatchKeyEvent(KeyEvent.changeAction(down, KeyEvent.ACTION_UP)))
-        }
-        compose.onNodeWithTag("assistant_chat_window").assertIsDisplayed()
-        compose.onNodeWithTag("assistant_chat_input").assertTextContains("h").assertIsFocused()
-        compose.runOnUiThread { assertEquals("h", assistant.chat.draft) }
-        compose.onNodeWithTag("assistant_chat_input").performTextInput("@")
-        compose.runOnUiThread { assertEquals("h@", assistant.chat.draft) }
-    }
-
     @Test fun spaceOpensWithoutAddingTextAndHeldSpaceIsConsumedOnlyForTheOpener() {
         compose.runOnUiThread {
             val down = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_SPACE)
@@ -131,21 +110,4 @@ class AssistantHomeKeyboardTest {
         compose.runOnUiThread { assertEquals("h", assistant.chat.draft) }
     }
 
-    @Test fun atPreservesRetainedDraftAndSelection() {
-        val retained = TextFieldValue("unsent question", TextRange(6))
-        compose.onNodeWithTag("assistant_chat_button").performClick()
-        compose.runOnUiThread {
-            assistant.chat.input = retained
-            ViewModelProvider(compose.activity)[LauncherViewModel::class.java].requestReturnHome()
-        }
-        compose.waitUntil { !assistant.chat.visible && assistant.homeShortcutEligible }
-        compose.runOnUiThread {
-            val down = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_AT)
-            assertEquals('@'.code, down.unicodeChar)
-            assertTrue(compose.activity.dispatchKeyEvent(down))
-            assertTrue(compose.activity.dispatchKeyEvent(KeyEvent.changeAction(down, KeyEvent.ACTION_UP)))
-        }
-        compose.onNodeWithTag("assistant_chat_input").assertTextContains(retained.text).assertIsFocused()
-        compose.runOnUiThread { assertEquals(retained, assistant.chat.input) }
-    }
 }
