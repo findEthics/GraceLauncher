@@ -39,6 +39,7 @@ internal class MagicActions(private val context: Context) {
     }
     private val launcherApps = context.getSystemService(LauncherApps::class.java)
     private val users = context.getSystemService(UserManager::class.java)
+    val currentUserSerial: Long get() = users.getSerialNumberForUser(Process.myUserHandle())
     fun appLabel(pkg: String): String = runCatching {
         context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(pkg, 0)).toString()
     }.getOrDefault(pkg)

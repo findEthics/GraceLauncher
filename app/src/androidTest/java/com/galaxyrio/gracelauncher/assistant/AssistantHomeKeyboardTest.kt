@@ -4,6 +4,9 @@ import android.view.KeyEvent
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
+import com.galaxyrio.gracelauncher.magic.MagicController
+import com.galaxyrio.gracelauncher.magic.MagicDataSource
+import com.galaxyrio.gracelauncher.magic.SyntheticMagicDataSource
 import com.galaxyrio.gracelauncher.MainActivity
 import com.galaxyrio.gracelauncher.ui.LauncherViewModel
 import org.junit.After
@@ -15,12 +18,19 @@ import org.junit.Test
 /** Real HOME dispatch/Compose path, synthetic keys only. Never submits an action or changes default HOME. */
 class AssistantHomeKeyboardTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private lateinit var magic: MagicController
+    private var originalSource: MagicDataSource? = null
     private lateinit var assistant: AssistantController
     private var originallyEnabled = false
     private var originallyHomeButtonVisible = true
     @Before fun enableAssistant() {
         compose.runOnUiThread {
-            assistant = ViewModelProvider(compose.activity)[LauncherViewModel::class.java].assistant
+            val viewModel = ViewModelProvider(compose.activity)[LauncherViewModel::class.java]
+            magic = viewModel.magic
+            magic.close()
+            originalSource = magic.dataSource
+            magic.dataSource = SyntheticMagicDataSource()
+            assistant = viewModel.assistant
             originallyEnabled = assistant.enabled
             originallyHomeButtonVisible = assistant.homeButtonVisible
             assistant.enable(true)
@@ -31,6 +41,8 @@ class AssistantHomeKeyboardTest {
     }
     @After fun restoreAssistant() {
         compose.runOnUiThread {
+            magic.close()
+            magic.dataSource = originalSource
             assistant.closeChat()
             assistant.showHomeButton(originallyHomeButtonVisible)
             assistant.enable(originallyEnabled)

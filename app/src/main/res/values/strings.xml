@@ -519,12 +519,12 @@
     </plurals>
     <!-- Offline assistant -->
     <string name="assistant_title">Offline assistant</string>
-    <string name="assistant_privacy">Inference stays on this device. Conversations are kept only in memory and cleared when closed. Optional Web search sends model-generated queries to Tavily; these may include details from this chat. The full transcript is not uploaded. Downloads also require internet; there is no cloud inference fallback. Your keyboard and external apps may have their own network features.</string>
+    <string name="assistant_privacy">• Inference stays on this device; no cloud inference fallback.\n• Chat stays in memory; closing chat clears it.\n• Optional Web search sends generated queries to Tavily, possibly with chat details; no full transcript upload.\n• Downloads need internet. Your keyboard and external apps may also use internet.</string>
     <string name="assistant_enable">Enable chat assistant on Home</string>
     <string name="assistant_show_home_button">Show chat button on Home</string>
     <string name="assistant_show_home_button_hint">When hidden, use Space or ! on the Home keyboard to open chat. The assistant must remain enabled.</string>
     <string name="assistant_open_chat">Open chat assistant</string>
-    <string name="assistant_chat_hint">On Home, Space opens chat without adding text; ! opens action input. Chat normally, or start one complete English action with !. Use + inside chat to enable Web search: the model decides when and what to search, with at most two searches per reply. Tap × to remove it. Search queries may contain chat details. Phone actions stay local. A search failure allows an unverified offline answer with a warning. Enter or keyboard Send submits; Shift+Enter adds a line. Actions must be single-line. Back closes and clears chat.</string>
+    <string name="assistant_chat_hint">• On idle Home: Space opens chat without adding text; ! opens action input. Assistant must be enabled.\n• Enter or keyboard Send submits; Shift+Enter adds a line. Back closes and clears chat; Home minimizes and retains it in memory.\n• Chat normally, or start one complete, single-line English action with !.\n• Tap the + tools button in chat for Web search; tap × to remove it. Selection persists until removed or chat is cleared.\n• The model chooses when and what to search, up to twice per reply. Queries may contain chat details.\n• Search failures show a warning; any offline answer is unverified. Phone actions stay local.</string>
     <string name="assistant_tools">Chat tools</string>
     <string name="assistant_web_search">Web search</string>
     <string name="assistant_remove_web_search">Remove Web search</string>
@@ -542,7 +542,7 @@
     <string name="assistant_ready">Verified and ready</string>
     <string name="assistant_download">Download model</string>
     <string name="assistant_delete">Delete model</string>
-    <string name="assistant_direct_actions">Prefix with ! to execute without confirmation: flashlight, timer, alarm, saved-contact calls, device-local contacts and calendar events. Opens email drafts, maps and Wi-Fi settings. Alarms need an explicit time. Without a day, the next occurrence is used: today if still ahead, otherwise tomorrow (for example, !wake me up at 7am). An explicit day must match that next occurrence. Ambiguous requests fail without action. External apps may use internet.</string>
+    <string name="assistant_direct_actions">• ! executes without confirmation: flashlight, timer, alarm, saved-contact calls, device-local contacts and calendar events.\n• Email opens a draft; maps and Wi-Fi open their apps/settings. External apps may use internet.\n• Alarms need an explicit time, e.g. !wake me up at 7am. No day means today if still ahead, otherwise tomorrow; an explicit day must match that next occurrence.\n• Ambiguous requests fail without action. If permission is requested, grant it and repeat the command.</string>
     <!-- Local keyboard commands, separate from assistant chat. -->
     <string name="provider_whatsapp">WhatsApp</string>
     <string name="provider_whatsapp_business">WhatsApp Business</string>
@@ -565,7 +565,7 @@
     <string name="provider_textnow">TextNow</string>
     <string name="provider_textfree">TextFree</string>
     <string name="magic_title">Keyboard commands</string>
-    <string name="magic_help">On idle Home, @ opens messaging, # opens calling, + drafts a calendar event, and ? opens app search. No assistant or model is needed. Type a contact or address, then Enter to select; type your message and Enter to continue. Arrows select results; Tab and Shift+Tab move focus. Escape, Back, or Home clears the command. Returning from another app keeps an unfinished draft in memory only. Space and ! still open assistant chat when enabled.</string>
+    <string name="magic_help">• On idle Home: @ message, # call, + calendar draft, ? app search (if enabled). No assistant or model needed. In editors, these characters are ordinary text.\n• Message/call: type a contact or address; Enter selects. For messages, type the body and Enter to continue. Grant contact permission for lookup.\n• WhatsApp/Business selections stay separate: synced phone contacts first, recent conversations only when sync data is unavailable. Lists may be empty or incomplete; membership is not checked live.\n• Event examples from Home: +meeting 30 nov at 9am or +meeting nov 30 at 9am. The opening + opens the panel; type the rest inside.\n• English accepts day + named month or named month + day, abbreviated or full, optional ordinal and four-digit year. Without a year, use the next occurrence; date only means all-day. Timed events default to one hour in the local time zone.\n• Calendar opens a draft for review and saving. Invalid dates need review; nothing is saved automatically.\n• Arrows select results; Tab/Shift+Tab move focus; Enter continues; Shift+Enter adds a line.\n• Escape, Back, or Home clears the command. Returning from another app retains an unfinished draft in memory only.\n• Messaging normally opens a provider draft. Automatic direct SMS is off by default and needs the assistant role and SMS permission; confirm the exact number for inferred recipients. SMS is queued, not confirmed delivered; uncertain sends are not retried. Premium short codes may cost extra.\n• Space and ! open assistant chat when enabled.</string>
     <string name="magic_message">Message</string>
     <string name="magic_call">Call</string>
     <string name="magic_event">Event</string>

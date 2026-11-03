@@ -34,6 +34,21 @@ internal class MagicSession(val id: Long, val kind: MagicKind) {
     var status by mutableStateOf("")
     val query get() = input.text.trimStart().substringBefore(' ')
     val body get() = input.text.substringAfter(' ', "").trimStart()
+    private var contactScope: MagicContactScope? = null
+    fun updateContactScope(scope: MagicContactScope): Boolean {
+        val changed = kind != MagicKind.Event && contactScope != null && contactScope != scope
+        if (changed) {
+            cancelSms()
+            recipient = null
+            recipientInferred = false
+            conversation = null
+            providerPackage = null
+            input = TextFieldValue()
+            status = ""
+        }
+        contactScope = scope
+        return changed
+    }
     fun append(text: String) {
         val start = input.selection.min
         val value = input.text.replaceRange(start, input.selection.max, text)
@@ -70,6 +85,7 @@ internal class MagicSession(val id: Long, val kind: MagicKind) {
 
 internal class MagicController {
     var session by mutableStateOf<MagicSession?>(null); private set
+    var dataSource: MagicDataSource? = null
     var eligible = false
     private var generation = 0L
     internal val keys = MagicKeySequence()

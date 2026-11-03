@@ -54,8 +54,9 @@ internal open class EnglishCalendarLanguage(
         "\\b(?:on\\s+)?($weekdayNames)\\b",
         RegexOption.IGNORE_CASE,
     )
-    private val namedMonthDatePattern = Regex(
-        "\\b($monthNames)\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?\\b",
+    private val namedDatePattern = Regex(
+        "\\b(?:(\\d{1,2})(?:st|nd|rd|th)?\\s+($monthNames)|" +
+            "($monthNames)\\s+(\\d{1,2})(?:st|nd|rd|th)?)(?:,?\\s+(\\d{4}))?\\b",
         RegexOption.IGNORE_CASE,
     )
     private val numericDatePattern = Regex("\\b(\\d{1,2})[/-](\\d{1,2})(?:[/-](\\d{2,4}))?\\b")
@@ -87,7 +88,7 @@ internal open class EnglishCalendarLanguage(
             "\\bin\\s+\\d+\\s+[a-z]+\\b|" +
             "\\b(?:the\\s+)?(?:first|second|third|fourth|1st|2nd|3rd|4th)\\s+[a-z]+day\\s+" +
             "after\\s+(?:the\\s+)?\\d{1,2}(?:st|nd|rd|th)?\\b|" +
-            "\\b(?:$monthNames)\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?\\b|" +
+            namedDatePattern.pattern + "|" +
             "\\b(?:$weekdayNames)\\b|" +
             "\\b\\d{1,2}[/-]\\d{1,2}(?:[/-]\\d{2,4})?\\b|" +
             "(?:\\bat\\s+|@\\s*)(?:\\d{1,2}(?::\\d{2})?\\s*(?:a\\.?m\\.?|p\\.?m\\.?)?|noon|midnight)\\b|" +
@@ -121,11 +122,12 @@ internal open class EnglishCalendarLanguage(
         dayAfterTomorrowPattern.findAll(text).forEach {
             add(it, CalendarDateExpression.Relative(2, RelativeDateUnit.DAYS))
         }
-        namedMonthDatePattern.findAll(text).forEach { match ->
-            val month = parseMonth(match.groupValues[1]) ?: return@forEach
-            val day = match.groupValues[2].toIntOrNull()
+        // One left-to-right scan claims "30 nov" before a trailing clock can look like "nov 09".
+        namedDatePattern.findAll(text).forEach { match ->
+            val month = parseMonth(match.groupValues[2].ifBlank { match.groupValues[3] }) ?: return@forEach
+            val day = match.groupValues[1].ifBlank { match.groupValues[4] }.toIntOrNull()
                 ?: return ParseCollection(issue = CalendarParseIssue.INVALID_DATE)
-            add(match, CalendarDateExpression.MonthDay(month, day, match.groupValues[3].toIntOrNull()))
+            add(match, CalendarDateExpression.MonthDay(month, day, match.groupValues[5].toIntOrNull()))
         }
         ordinalWeekdayAfterPattern.findAll(text).forEach { match ->
             val weekday = parseWeekday(match.groupValues[1]) ?: return@forEach

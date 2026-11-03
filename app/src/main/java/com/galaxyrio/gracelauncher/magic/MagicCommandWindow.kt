@@ -13,28 +13,30 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentDataType
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.contentDataType
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -66,14 +68,14 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
     val actions = remember(context) { MagicActions(context) }
     val prefs = remember(context) { MagicPreferences(context) }
     DisposableEffect(prefs) { onDispose { prefs.close() } }
-    val contactsSource = remember(context) { SearchContacts(context) }
-    var contactsGranted by remember { mutableStateOf(contactsSource.hasAccess()) }
+    val contactsSource = remember(context, actions, c.dataSource) { c.dataSource ?: PlatformMagicDataSource(context, actions) }
+    var contactsGranted by remember(contactsSource) { mutableStateOf(contactsSource.hasContactAccess()) }
     var resumeVersion by remember { mutableIntStateOf(0) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle) {
+    DisposableEffect(lifecycle, contactsSource) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                contactsGranted = contactsSource.hasAccess()
+                contactsGranted = contactsSource.hasContactAccess()
                 resumeVersion++
                 if (s.handedOff) { s.handedOff = false; s.consumed = false }
             }
@@ -81,28 +83,41 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    val contacts by produceState<List<SearchContact>?>(null, contactsGranted, resumeVersion) {
-        value = null
-        if (s.kind == MagicKind.Event || !contactsGranted) value = emptyList()
-        else contactsSource.observe().collect { value = it }
+    val strictProvider = if (s.kind == MagicKind.Message) strictContactProvider(prefs.provider) else null
+    val providerInstalled = remember(contactsSource, strictProvider, resumeVersion) {
+        strictProvider == null || contactsSource.installed(strictProvider)
     }
-    val conversations by produceState(emptyList<MagicConversation>(), apps, prefs.automatic, prefs.provider, resumeVersion) {
-        value = if (s.kind == MagicKind.Message) actions.conversations(apps,
-            actions.messaging.recentConversationPackages(prefs.automatic, prefs.provider)) else emptyList()
+    val contactScope = MagicContactScope(if (s.kind == MagicKind.Message) prefs.provider else null, contactsGranted, providerInstalled)
+    if (s.updateContactScope(contactScope)) c.submitPending = false
+    // Remember state by scope so old rows disappear before a replacement coroutine starts.
+    var contacts by remember(contactsSource, contactScope, resumeVersion) { mutableStateOf<List<SearchContact>?>(null) }
+    LaunchedEffect(contactsSource, contactScope, resumeVersion) {
+        if (s.kind == MagicKind.Event || !contactsGranted || !providerInstalled) contacts = emptyList()
+        else contactsSource.contacts(strictProvider).collect { contacts = it }
+    }
+    var conversations by remember(contactsSource, contactScope, prefs.automatic, apps, resumeVersion) {
+        mutableStateOf(emptyList<MagicConversation>())
+    }
+    LaunchedEffect(contactsSource, contactScope, prefs.automatic, apps, resumeVersion) {
+        conversations = if (s.kind == MagicKind.Message && providerInstalled)
+            contactsSource.conversations(apps, prefs.automatic, prefs.provider)
+                .filter { strictProvider == null || it.target.packageName == strictProvider }
+            else emptyList()
     }
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
+    val inputModeManager = LocalInputModeManager.current
     val keyboard = LocalSoftwareKeyboardController.current
-    var highlight by remember { mutableIntStateOf(0) }
+    var highlight by remember(contactScope) { mutableIntStateOf(0) }
     val list = rememberLazyListState()
-    var providerPicker by remember { mutableStateOf(false) }
-    var callConfirmation by remember { mutableStateOf<CommunicationRecipient?>(null) }
-    var pendingCall by remember { mutableStateOf<CommunicationRecipient?>(null) }
-    var pendingSms by remember { mutableStateOf<MagicSmsRequest?>(null) }
-    var smsConfirmation by remember { mutableStateOf<MagicSmsRequest?>(null) }
-    var roleDisclosure by remember { mutableStateOf(false) }
+    var providerPicker by remember(contactScope) { mutableStateOf(false) }
+    var callConfirmation by remember(contactScope) { mutableStateOf<CommunicationRecipient?>(null) }
+    var pendingCall by remember(contactScope) { mutableStateOf<CommunicationRecipient?>(null) }
+    var pendingSms by remember(contactScope) { mutableStateOf<MagicSmsRequest?>(null) }
+    var smsConfirmation by remember(contactScope) { mutableStateOf<MagicSmsRequest?>(null) }
+    var roleDisclosure by remember(contactScope) { mutableStateOf(false) }
     var calendarReview by remember { mutableStateOf<CalendarDraft?>(null) }
-    fun active() = c.session === s && !s.consumed
+    fun active() = contactsSource.externalActionsAllowed && c.session === s && !s.consumed
     fun handoff(opened: Boolean) {
         s.handedOff = opened
         if (!opened) { s.consumed = false; s.status = resources.getString(R.string.magic_no_app) }
@@ -111,7 +126,8 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
         val recipient = s.recipient ?: return
         if (!active() || !s.claim()) return
         providerPicker = false
-        val result = actions.messaging.openPreferredMessageDraft(recipient, s.input.text, pkg)
+        val result = actions.messaging.openPreferredMessageDraft(recipient, s.input.text, pkg,
+            allowSmsFallback = strictProvider == null || pkg != strictProvider)
         handoff(result != PreferredMessageDraftResult.FAILED)
         s.status = resources.getString(when (result) {
             PreferredMessageDraftResult.OPENED -> R.string.magic_draft_retained
@@ -164,7 +180,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
         }
     }
     val contactPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        contactsGranted = contactsSource.hasAccess()
+        contactsGranted = contactsSource.hasContactAccess()
         if (!it) s.status = resources.getString(R.string.magic_permission_denied)
     }
     val contactRows = contacts.orEmpty().flatMap { contact -> contact.dialNumbers.map { number ->
@@ -177,9 +193,11 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
         } else { s.choose(recipient, pkg, inferred); highlight = 0; focus.requestFocus() }
     }
     fun chooseConversation(conversation: MagicConversation) {
-        if (!actions.conversationEligible(conversation)) { s.status = resources.getString(R.string.magic_conversation_unavailable); return }
-        when (val choice = resolveRecentConversationSelection(conversation.target, contactsGranted,
-            canDraftToShortcut = { actions.messaging.canDraftToConversationShortcut(it.packageName, it.shortcutId, conversation.categories) },
+        if (!contactsSource.conversationEligible(conversation)) { s.status = resources.getString(R.string.magic_conversation_unavailable); return }
+        when (val choice = resolveRecentConversationSelection(conversation.target, contactsGranted && strictProvider == null &&
+            conversation.target.userSerial == actions.currentUserSerial,
+            canDraftToShortcut = { contactsSource.externalActionsAllowed && it.userSerial == actions.currentUserSerial &&
+                actions.messaging.canDraftToConversationShortcut(it.packageName, it.shortcutId, conversation.categories) },
             canAddressDraft = actions.messaging::canAddressConversationDraft,
             searchContacts = { contactRows.filter { row -> row.name.equals(it, ignoreCase = true) } })) {
             is RecentConversationSelection.ShortcutDraft -> {
@@ -189,21 +207,24 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                 focus.requestFocus()
             }
             is RecentConversationSelection.DraftRecipient -> chooseRecipient(choice.contact.toCommunicationRecipient(), choice.packageName, inferred = true)
-            is RecentConversationSelection.DirectOpen -> { onLaunchShortcut(conversation.shortcut); c.close() }
+            is RecentConversationSelection.DirectOpen -> { if (active()) { onLaunchShortcut(conversation.shortcut); c.close() } }
         }
     }
+    val conversationRows = if (s.kind == MagicKind.Message)
+        conversations.filter { it.target.label.contains(s.query, ignoreCase = true) }.take(8).map { conversation ->
+            MagicRow(conversation.target.selectionKey, conversation.target.label, actions.appLabel(conversation.target.packageName)) { chooseConversation(conversation) }
+        } else emptyList()
     val rows = buildList {
         if (s.kind != MagicKind.Event && s.recipient == null && s.conversation == null) {
-            if (s.kind == MagicKind.Message) conversations.filter { it.target.label.contains(s.query, ignoreCase = true) }.take(8).forEach { conversation ->
-                add(MagicRow(conversation.target.selectionKey, conversation.target.label, actions.appLabel(conversation.target.packageName)) { chooseConversation(conversation) })
-            }
+            if (strictProvider == null) addAll(conversationRows)
             val query = SearchQuery(s.query, fuzzy = false)
             contacts.orEmpty().filter { s.query.isBlank() || it.score(query) != null }.take(5).forEach { contact ->
                 contact.dialNumbers.forEach { number ->
-                    add(MagicRow("${contact.id}:$number", contact.name, number) { chooseRecipient(CommunicationRecipient(number, contact.name, number)) })
+                    add(MagicRow("${contact.id}:$number", contact.name, number) { chooseRecipient(CommunicationRecipient(number, contact.name, number), strictProvider) })
                 }
             }
-            if (s.query.isNotBlank()) add(MagicRow("raw", s.query, resources.getString(R.string.magic_raw_recipient)) { chooseRecipient(userEnteredRecipient(s.query)) })
+            if (strictProvider != null) addAll(conversationRows)
+            if (s.query.isNotBlank() && allowRawMagicRecipient(s.kind, prefs.provider)) add(MagicRow("raw", s.query, resources.getString(R.string.magic_raw_recipient)) { chooseRecipient(userEnteredRecipient(s.query)) })
         }
     }
     val eventTitle = stringResource(R.string.magic_event)
@@ -213,7 +234,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
     }
     fun openCalendar(draft: CalendarDraft) { if (active() && s.claim()) handoff(actions.calendar(draft)) }
     val submit = {
-        if (active()) when {
+        if (c.session === s && !s.consumed) when {
             s.kind == MagicKind.Event -> {
                 if (s.input.text.isNotBlank()) {
                     if (parsed is CalendarParseResult.NeedsReview || parsed is CalendarParseResult.Invalid) calendarReview = parsed.draft
@@ -222,7 +243,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
             }
             s.conversation != null -> {
                 val conversation = s.conversation!!
-                if (s.input.text.isNotBlank() && actions.conversationEligible(conversation) && s.claim()) {
+                if (active() && s.input.text.isNotBlank() && contactsSource.conversationEligible(conversation) && s.claim()) {
                     val opened = actions.messaging.openConversationShortcutDraft(conversation.target.packageName,
                         conversation.target.shortcutId, conversation.categories, s.input.text)
                     if (opened) { handoff(true); s.status = resources.getString(R.string.magic_draft_retained) }
@@ -233,7 +254,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                 if (contacts == null) c.submitPending = true
                 else rows.getOrNull(highlight.coerceIn(0, (rows.size - 1).coerceAtLeast(0)))?.choose?.invoke()
             }
-            s.input.text.isNotBlank() -> {
+            s.input.text.isNotBlank() && active() -> {
                 val draft = MessageDraft(s.recipient!!, s.input.text, s.providerPackage)
                 when (resolvedMessageSendRoute(
                     recipient = draft.recipient,
@@ -261,6 +282,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
     LaunchedEffect(highlight) { if (rows.isNotEmpty()) list.animateScrollToItem(highlight.coerceIn(0, rows.lastIndex)) }
     LaunchedEffect(Unit) { focus.requestFocus(); keyboard?.show() }
     BackHandler { c.close() }
+    val recipientSearch = s.searchingForRecipient
     val inputDescription = stringResource(if (s.kind == MagicKind.Event) R.string.magic_event_input
         else if (s.recipient != null || s.conversation != null) R.string.magic_message else R.string.magic_recipient)
 
@@ -269,6 +291,9 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
             // Multiline text fields otherwise insert Tab instead of moving focus.
             if (event.key != Key.Tab) false else {
                 if (event.type == KeyEventType.KeyDown) {
+                    // This preview handler runs before Compose's default keyboard traversal.
+                    // Buttons use SystemDefined focusability and are skipped in touch mode.
+                    inputModeManager.requestInputMode(InputMode.Keyboard)
                     focusManager.moveFocus(if (event.isShiftPressed) FocusDirection.Previous else FocusDirection.Next)
                 }
                 true
@@ -296,7 +321,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                     }
                     s.recipient?.let { Text(it.address, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("magic_recipient_number")) }
                     if (s.kind != MagicKind.Event && !contactsGranted && s.recipient == null && s.conversation == null)
-                        TextButton(onClick = { contactPermission.launch(Manifest.permission.READ_CONTACTS) }) { Text(stringResource(R.string.magic_grant_contacts)) }
+                        TextButton(onClick = { if (contactsSource.externalActionsAllowed) contactPermission.launch(Manifest.permission.READ_CONTACTS) }) { Text(stringResource(R.string.magic_grant_contacts)) }
                     if (s.kind == MagicKind.Event && s.input.text.isNotBlank()) {
                         Text(parsed.draft.title, style = MaterialTheme.typography.bodyMedium)
                         val start = parsed.draft.startMillis
@@ -305,26 +330,32 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                             Text(stringResource(R.string.magic_calendar_review), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
                     if (s.status.isNotBlank()) Text(s.status, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("magic_status"))
-                    OutlinedTextField(value = s.input, onValueChange = { if (!s.consumed) s.input = it },
-                        modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { if (it.isFocused) c.focused() }
-                            .semantics { contentDescription = inputDescription }.testTag("magic_input")
-                            .onPreviewKeyEvent { event ->
-                                when (event.key) {
-                                    Key.Escape -> { if (event.type == KeyEventType.KeyDown) c.close(); true }
-                                    Key.DirectionDown, Key.DirectionUp -> if (rows.isEmpty()) false else {
-                                        if (event.type == KeyEventType.KeyDown) highlight = (highlight + if (event.key == Key.DirectionDown) 1 else -1).coerceIn(0, rows.lastIndex)
-                                        true
+                    MagicEditorInput(recipientSearch) {
+                        OutlinedTextField(value = s.input, onValueChange = { if (!s.consumed) s.input = it },
+                            modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { if (it.isFocused) c.focused() }
+                                .semantics {
+                                    contentDescription = inputDescription
+                                    // Compose 1.12.1 excludes this virtual editor from autofill, preserving accessibility.
+                                    if (recipientSearch) contentDataType = ContentDataType.None
+                                }.testTag("magic_input")
+                                .onPreviewKeyEvent { event ->
+                                    when (event.key) {
+                                        Key.Escape -> { if (event.type == KeyEventType.KeyDown) c.close(); true }
+                                        Key.DirectionDown, Key.DirectionUp -> if (rows.isEmpty()) false else {
+                                            if (event.type == KeyEventType.KeyDown) highlight = (highlight + if (event.key == Key.DirectionDown) 1 else -1).coerceIn(0, rows.lastIndex)
+                                            true
+                                        }
+                                        Key.Enter, Key.NumPadEnter -> {
+                                            if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
+                                                if (event.isShiftPressed && s.kind != MagicKind.Call) s.append("\n") else submit()
+                                            }; true
+                                        }
+                                        else -> false
                                     }
-                                    Key.Enter, Key.NumPadEnter -> {
-                                        if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
-                                            if (event.isShiftPressed && s.kind != MagicKind.Call) s.append("\n") else submit()
-                                        }; true
-                                    }
-                                    else -> false
-                                }
-                            }, shape = RoundedCornerShape(28.dp), maxLines = 5,
-                        prefix = { Text(s.kind.prefix.toString()) },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { submit() }))
+                                }, shape = RoundedCornerShape(28.dp), maxLines = 5,
+                            prefix = { Text(s.kind.prefix.toString()) },
+                            keyboardOptions = magicKeyboardOptions(recipientSearch), keyboardActions = KeyboardActions(onSend = { submit() }))
+                    }
                     Button(onClick = submit, enabled = !s.consumed && s.input.text.isNotBlank(), modifier = Modifier.align(Alignment.End).testTag("magic_submit")) {
                         Text(stringResource(if (s.recipient == null && s.conversation == null && s.kind != MagicKind.Event) R.string.magic_select else R.string.magic_continue))
                     }
@@ -338,8 +369,10 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
             text = { Text("${recipient.displayName}\n${recipient.address}") },
             confirmButton = { TextButton(onClick = {
                 callConfirmation = null
-                if (actions.hasPermission(Manifest.permission.CALL_PHONE)) placeCall(recipient)
-                else { pendingCall = recipient; callPermission.launch(Manifest.permission.CALL_PHONE) }
+                if (active()) {
+                    if (actions.hasPermission(Manifest.permission.CALL_PHONE)) placeCall(recipient)
+                    else { pendingCall = recipient; callPermission.launch(Manifest.permission.CALL_PHONE) }
+                }
             }) { Text(stringResource(R.string.magic_call)) } },
             dismissButton = { Row { TextButton(onClick = { callConfirmation = null; if (active() && s.claim()) handoff(actions.call(recipient.address, chooser = true)) }) { Text(stringResource(R.string.magic_call_app)) }
                 TextButton(onClick = { callConfirmation = null }) { Text(stringResource(R.string.magic_cancel)) } } })

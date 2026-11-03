@@ -152,7 +152,10 @@ internal class MessagingDeviceActions(
         recipient: CommunicationRecipient,
         body: String,
         preferredPackage: String?,
+        allowSmsFallback: Boolean = true,
     ): PreferredMessageDraftResult {
+        if (!allowSmsFallback && preferredPackage != null && !isPackageInstalled(preferredPackage))
+            return PreferredMessageDraftResult.FAILED
         val defaultPackage = defaultMessagingPackage()
         val integratedPackage = preferredPackage?.takeIf {
             it.isNotBlank() && it != defaultPackage
@@ -182,6 +185,7 @@ internal class MessagingDeviceActions(
                 }
             }
         }
+        if (!allowSmsFallback) return PreferredMessageDraftResult.FAILED
         return defaultMessageDraftResult(
             integratedPackage = integratedPackage,
             opened = openDefaultMessageDraft(recipient, body),

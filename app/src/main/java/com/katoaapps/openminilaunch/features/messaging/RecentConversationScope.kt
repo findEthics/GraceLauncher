@@ -2,19 +2,16 @@ package com.katoaapps.openminilaunch.features.messaging
 
 import com.katoaapps.openminilaunch.model.LauncherShortcutTarget
 
-/**
- * Chooses which messaging apps may contribute recent-conversation shortcuts.
- *
- * Automatic sending follows the one provider already chosen by the user. Manual sending is a
- * broader discovery mode, so every installed integrated provider and the system SMS app may
- * contribute. Android contacts remain a separate result source in either mode.
- */
+/** WhatsApp selections are strict in manual and automatic mode; other discovery remains unchanged. */
 internal fun resolveRecentConversationPackages(
     sendAutomatically: Boolean,
     preferredPackage: String?,
     defaultSmsPackage: String?,
     isInstalled: (String) -> Boolean,
 ): Set<String> {
+    if (preferredPackage == "com.whatsapp" || preferredPackage == "com.whatsapp.w4b") {
+        return setOfNotNull(preferredPackage.takeIf(isInstalled))
+    }
     val installedDefault = defaultSmsPackage?.takeIf(isInstalled)
     if (sendAutomatically) {
         val installedPreference = preferredPackage?.takeIf(isInstalled)
