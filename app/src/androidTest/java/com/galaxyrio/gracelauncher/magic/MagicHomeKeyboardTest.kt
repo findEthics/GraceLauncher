@@ -60,6 +60,8 @@ class MagicHomeKeyboardTest {
     @After fun restoreAssistant() {
         compose.runOnUiThread {
             magic.close()
+            magic.fakeCall = null
+            magic.fakeCallPermission = false
             magic.dataSource = originalSource
             messagingPreferences.edit().apply {
                 for ((key, value) in originalMessaging) when (value) {
@@ -112,7 +114,8 @@ class MagicHomeKeyboardTest {
             messagingPreferences.edit().putString("provider", pkg).commit()
             magic.open(MagicKind.Message)
         }
-        compose.onNodeWithTag("magic_result:0").assertTextContains("Synced fixture").performClick()
+        compose.onNodeWithTag("magic_result:0").assertTextContains("Recent fixture")
+        compose.onNodeWithTag("magic_result:1").assertTextContains("Synced fixture").performClick()
         compose.runOnUiThread { assertEquals(pkg, magic.session!!.providerPackage) }
         synthetic.granted = false
         compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
@@ -131,6 +134,199 @@ class MagicHomeKeyboardTest {
         compose.onNodeWithTag("magic_input").performTextInput("15559999")
         compose.onAllNodesWithTag("magic_result:0").assertCountEquals(0)
         compose.runOnUiThread { assertFalse(synthetic.externalActionsAllowed) }
+    }
+
+    @Test fun preferredConversationPrecedesOtherMatchesAndContactNumbersForPrefixes() {
+        fun conversation(pkg: String, id: String, label: String) = MagicConversation(
+            com.katoaapps.openminilaunch.model.LauncherShortcutTarget(label, pkg, id, 0, false),
+            com.galaxyrio.gracelauncher.data.LauncherShortcut(id, pkg, label, null), emptySet())
+        synthetic.conversationSnapshot = listOf(conversation("other.app", "other", "Alex other"),
+            conversation("preferred.app", "preferred", "Alex preferred"),
+            conversation("preferred.app", "unmatched", "Zebra"))
+        synthetic.contactSnapshots = mapOf(null to listOf(com.galaxyrio.gracelauncher.data.SearchContact(
+            1, android.net.Uri.parse("content://synthetic/1"), "Alex contact", null, listOf("15550001", "15550002"))))
+        compose.runOnUiThread {
+            messagingPreferences.edit().putString("provider", "preferred.app").commit()
+            magic.open(MagicKind.Message)
+        }
+        for (prefix in listOf("", "A", "Al", "Alex")) {
+            compose.onNodeWithTag("magic_input").performTextClearance()
+            if (prefix.isNotEmpty()) compose.onNodeWithTag("magic_input").performTextInput(prefix)
+            compose.onNodeWithTag("magic_result:0").assertTextContains("Alex preferred")
+            val zebraMatches = "Zebra".contains(prefix, ignoreCase = true)
+            val otherIndex = if (zebraMatches) 2 else 1
+            if (zebraMatches) compose.onNodeWithTag("magic_result:1").assertTextContains("Zebra")
+            compose.onNodeWithTag("magic_result:$otherIndex").assertTextContains("Alex other")
+            compose.onNodeWithTag("magic_result:${otherIndex + 1}").assertTextContains("15550001")
+            compose.onNodeWithTag("magic_result:${otherIndex + 2}").assertTextContains("15550002")
+            if (!zebraMatches) compose.onNodeWithText("Zebra").assertDoesNotExist()
+        }
+    }
+
+    @Test fun selectingEnterReleaseDoesNotActivateFocusedCall() {
+        synthetic.contactSnapshots = mapOf(null to listOf(com.galaxyrio.gracelauncher.data.SearchContact(
+            1, android.net.Uri.parse("content://synthetic/1"), "Call fixture", null, listOf("15550001"))))
+        compose.runOnUiThread { magic.open(MagicKind.Call) }
+        compose.onNodeWithTag("magic_result:0").assertExists()
+        compose.onNodeWithTag("magic_input").performKeyInput { keyDown(Key.Enter); keyUp(Key.Enter) }
+        compose.onNodeWithTag("magic_confirm_call").assertIsFocused()
+        compose.onNodeWithTag("magic_confirm_call").assertExists()
+        compose.runOnUiThread { assertFalse(magic.session!!.consumed) }
+        compose.onNodeWithTag("magic_confirm_call").performKeyInput { pressKey(Key.Enter) }
+        compose.onNodeWithTag("magic_confirm_call").assertDoesNotExist()
+        compose.runOnUiThread { assertFalse(magic.session!!.consumed); assertFalse(synthetic.externalActionsAllowed) }
+    }
+
+    @Test fun heldSelectionEnterCannotCallButFreshEnterCallsOnce() {
+        val calls = mutableListOf<Pair<String, Boolean>>()
+        synthetic.contactSnapshots = mapOf(null to listOf(com.galaxyrio.gracelauncher.data.SearchContact(
+            1, android.net.Uri.parse("content://synthetic/1"), "Call fixture", null, listOf("15550001"))))
+        compose.runOnUiThread {
+            magic.fakeCall = { number, chooser -> calls.add(number to chooser); true }
+            magic.fakeCallPermission = true
+            magic.open(MagicKind.Call)
+        }
+        compose.onNodeWithTag("magic_result:0").assertExists()
+        compose.onNodeWithTag("magic_input").assertIsFocused()
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val time = android.os.SystemClock.uptimeMillis()
+        instrumentation.sendKeySync(KeyEvent(time, time, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0))
+        compose.onNodeWithTag("magic_confirm_call").assertIsFocused()
+        instrumentation.sendKeySync(KeyEvent(time, android.os.SystemClock.uptimeMillis(), KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 1))
+        compose.runOnUiThread { assertTrue("repeat activated fake call: $calls", calls.isEmpty()) }
+        instrumentation.sendKeySync(KeyEvent(time, android.os.SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0))
+        compose.waitForIdle()
+        compose.runOnUiThread { assertTrue("release activated fake call: $calls", calls.isEmpty()); assertFalse(magic.session!!.consumed) }
+        compose.onNodeWithTag("magic_confirm_call").assertExists().performKeyInput { pressKey(Key.Enter) }
+        compose.runOnUiThread { assertEquals(listOf("15550001" to false), calls); assertNull(magic.session) }
+    }
+
+    @Test fun callFocusLossDisarmsStaleEnterRelease() {
+        val calls = mutableListOf<Pair<String, Boolean>>()
+        synthetic.contactSnapshots = mapOf(null to listOf(com.galaxyrio.gracelauncher.data.SearchContact(
+            1, android.net.Uri.parse("content://synthetic/1"), "Call fixture", null, listOf("15550001"))))
+        compose.runOnUiThread { magic.fakeCall = { number, chooser -> calls.add(number to chooser); true }; magic.fakeCallPermission = true; magic.open(MagicKind.Call) }
+        compose.onNodeWithTag("magic_result:0").performClick()
+        compose.onNodeWithTag("magic_confirm_call").assertIsFocused()
+        val instrument = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val t = android.os.SystemClock.uptimeMillis()
+        fun key(action: Int, code: Int, meta: Int = 0) = instrument.sendKeySync(KeyEvent(t, android.os.SystemClock.uptimeMillis(), action, code, 0, meta))
+        fun tab(meta: Int = 0) { key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_TAB, meta); key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_TAB, meta) }
+        key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)
+        tab(); tab()
+        compose.onNodeWithText(compose.activity.getString(com.galaxyrio.gracelauncher.R.string.magic_cancel)).assertIsFocused()
+        key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER)
+        key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)
+        tab(KeyEvent.META_SHIFT_ON); tab(KeyEvent.META_SHIFT_ON)
+        compose.onNodeWithTag("magic_confirm_call").assertIsFocused()
+        key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER)
+        compose.runOnUiThread { assertTrue("stale release called: $calls", calls.isEmpty()) }
+        compose.onNodeWithTag("magic_confirm_call").performKeyInput { pressKey(Key.Enter) }
+        compose.runOnUiThread { assertEquals(listOf("15550001" to false), calls) }
+    }
+
+    @Test fun canceledCallEnterDoesNotDispatch() {
+        val calls = mutableListOf<Pair<String, Boolean>>()
+        synthetic.contactSnapshots = mapOf(null to listOf(com.galaxyrio.gracelauncher.data.SearchContact(
+            1, android.net.Uri.parse("content://synthetic/1"), "Call fixture", null, listOf("15550001"))))
+        compose.runOnUiThread { magic.fakeCall = { number, chooser -> calls.add(number to chooser); true }; magic.fakeCallPermission = true; magic.open(MagicKind.Call) }
+        compose.onNodeWithTag("magic_result:0").performClick()
+        compose.onNodeWithTag("magic_confirm_call").assertIsFocused()
+        val instrument = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val t = android.os.SystemClock.uptimeMillis()
+        instrument.sendKeySync(KeyEvent(t, t, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0))
+        instrument.sendKeySync(KeyEvent(t, android.os.SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0, 0, -1, 0, KeyEvent.FLAG_CANCELED))
+        compose.runOnUiThread { assertTrue("canceled release called: $calls", calls.isEmpty()) }
+        compose.onNodeWithTag("magic_confirm_call").performKeyInput { pressKey(Key.Enter) }
+        compose.runOnUiThread { assertEquals(listOf("15550001" to false), calls) }
+    }
+
+    @Test fun dialogWindowFocusLossCannotCompleteHeldCall() {
+        val calls = mutableListOf<Pair<String, Boolean>>()
+        synthetic.contactSnapshots = mapOf(null to listOf(com.galaxyrio.gracelauncher.data.SearchContact(
+            1, android.net.Uri.parse("content://synthetic/1"), "Call fixture", null, listOf("15550001"))))
+        compose.runOnUiThread { magic.fakeCall = { number, chooser -> calls.add(number to chooser); true }; magic.fakeCallPermission = true; magic.open(MagicKind.Call) }
+        compose.onNodeWithTag("magic_result:0").performClick()
+        compose.onNodeWithTag("magic_confirm_call").assertIsFocused()
+        val instrument = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        var dialogRoot: android.view.View? = null
+        compose.runOnUiThread {
+            dialogRoot = android.view.inspector.WindowInspector.getGlobalWindowViews().single { it.hasWindowFocus() }
+        }
+        val t = android.os.SystemClock.uptimeMillis()
+        instrument.sendKeySync(KeyEvent(t, t, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0))
+        androidx.test.core.app.ActivityScenario.launch(com.galaxyrio.gracelauncher.SettingsActivity::class.java).use {
+            instrument.waitForIdleSync()
+            compose.runOnUiThread { assertFalse("dialog must actually lose window focus", dialogRoot!!.hasWindowFocus()) }
+        }
+        compose.onNodeWithTag("magic_confirm_call").assertIsFocused()
+        instrument.sendKeySync(KeyEvent(t, android.os.SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0))
+        compose.runOnUiThread { assertTrue("window-stale release called: $calls", calls.isEmpty()) }
+        compose.onNodeWithTag("magic_confirm_call").performKeyInput { pressKey(Key.Enter) }
+        compose.runOnUiThread { assertEquals(listOf("15550001" to false), calls) }
+    }
+
+    @Test fun lostSelectionReleaseDoesNotBlockTouchReopenedCall() {
+        val calls = mutableListOf<Pair<String, Boolean>>()
+        synthetic.contactSnapshots = mapOf(null to listOf(com.galaxyrio.gracelauncher.data.SearchContact(
+            1, android.net.Uri.parse("content://synthetic/1"), "Call fixture", null, listOf("15550001"))))
+        compose.runOnUiThread { magic.fakeCall = { number, chooser -> calls.add(number to chooser); true }; magic.fakeCallPermission = true; magic.open(MagicKind.Call) }
+        compose.onNodeWithTag("magic_result:0").assertExists()
+        compose.onNodeWithTag("magic_input").assertIsFocused()
+        val instrument = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val t = android.os.SystemClock.uptimeMillis()
+        instrument.sendKeySync(KeyEvent(t, t, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0))
+        compose.onNodeWithTag("magic_confirm_call").assertIsFocused()
+        compose.onNodeWithText(compose.activity.getString(com.galaxyrio.gracelauncher.R.string.magic_cancel)).performClick()
+        // The opening release is lost outside both the editor and confirmation window.
+        compose.onNodeWithTag("magic_result:0").performClick()
+        compose.onNodeWithTag("magic_confirm_call").assertIsFocused().performKeyInput { pressKey(Key.Enter) }
+        compose.runOnUiThread { assertEquals(listOf("15550001" to false), calls) }
+    }
+
+    @Test fun heldSelectionAfterDismissAndTouchReopenCannotCall() {
+        val calls = mutableListOf<Pair<String, Boolean>>()
+        synthetic.contactSnapshots = mapOf(null to listOf(com.galaxyrio.gracelauncher.data.SearchContact(
+            1, android.net.Uri.parse("content://synthetic/1"), "Call fixture", null, listOf("15550001"))))
+        compose.runOnUiThread { magic.fakeCall = { number, chooser -> calls.add(number to chooser); true }; magic.fakeCallPermission = true; magic.open(MagicKind.Call) }
+        compose.onNodeWithTag("magic_result:0").assertExists()
+        compose.onNodeWithTag("magic_input").assertIsFocused()
+        val instrument = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val t = android.os.SystemClock.uptimeMillis()
+        instrument.sendKeySync(KeyEvent(t, t, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0))
+        compose.onNodeWithTag("magic_confirm_call").assertIsFocused()
+        compose.onNodeWithText(compose.activity.getString(com.galaxyrio.gracelauncher.R.string.magic_cancel)).performClick()
+        compose.onNodeWithTag("magic_result:0").performClick()
+        compose.onNodeWithTag("magic_confirm_call").assertIsFocused()
+        instrument.sendKeySync(KeyEvent(t, android.os.SystemClock.uptimeMillis(), KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 1))
+        instrument.sendKeySync(KeyEvent(t, android.os.SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0))
+        compose.runOnUiThread { assertTrue("held selection called: $calls", calls.isEmpty()) }
+        compose.onNodeWithTag("magic_confirm_call").performKeyInput { pressKey(Key.Enter) }
+        compose.runOnUiThread { assertEquals(listOf("15550001" to false), calls) }
+    }
+
+    @Test fun touchConfirmationCancelChooserAndInvalidSessionAreSafe() {
+        val calls = mutableListOf<Pair<String, Boolean>>()
+        synthetic.contactSnapshots = mapOf(null to listOf(com.galaxyrio.gracelauncher.data.SearchContact(
+            1, android.net.Uri.parse("content://synthetic/1"), "Call fixture", null, listOf("15550001"))))
+        compose.runOnUiThread { magic.fakeCall = { number, chooser -> calls.add(number to chooser); true }; magic.fakeCallPermission = true; magic.open(MagicKind.Call) }
+        compose.onNodeWithTag("magic_result:0").performClick()
+        compose.onNodeWithText(compose.activity.getString(com.galaxyrio.gracelauncher.R.string.magic_cancel)).performClick()
+        compose.runOnUiThread { assertTrue(calls.isEmpty()); assertFalse(magic.session!!.consumed) }
+        compose.onNodeWithTag("magic_result:0").performClick()
+        compose.onNodeWithText(compose.activity.getString(com.galaxyrio.gracelauncher.R.string.magic_call_app)).performClick()
+        compose.runOnUiThread { assertEquals(listOf("15550001" to true), calls); magic.open(MagicKind.Call) }
+        compose.onNodeWithTag("magic_result:0").performClick()
+        compose.runOnUiThread { magic.fakeCallPermission = false }
+        compose.onNodeWithTag("magic_confirm_call").performKeyInput { pressKey(Key.Enter) }
+        compose.runOnUiThread { assertEquals(1, calls.size); assertFalse(magic.session!!.consumed); magic.fakeCallPermission = true }
+        compose.onNodeWithTag("magic_result:0").performClick()
+        compose.runOnUiThread { magic.open(MagicKind.Call) }
+        compose.onNodeWithTag("magic_confirm_call").assertDoesNotExist()
+        compose.runOnUiThread { assertEquals(1, calls.size) }
+        compose.onNodeWithTag("magic_result:0").performClick()
+        compose.onNodeWithTag("magic_confirm_call").assertIsFocused().performKeyInput { pressKey(Key.Enter) }
+        compose.runOnUiThread { assertEquals(listOf("15550001" to true, "15550001" to false), calls); assertNull(magic.session) }
     }
 
     @Test fun recipientAutofillExclusionEndsWhenEditingMessageBodyOrEvent() {

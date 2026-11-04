@@ -33,6 +33,9 @@ internal data class MagicConversation(
 
 internal enum class SmsOutcome { Queued, Unavailable, NoSim, Unknown }
 
+internal fun <T> prioritizeMagicPackages(items: List<T>, preferred: String?, packageName: (T) -> String): List<T> =
+    items.sortedBy { preferred == null || packageName(it) != preferred }
+
 internal class MagicActions(private val context: Context) {
     val messaging = MessagingDeviceActions(context, ::appLabel) { intent, chooser ->
         start(if (chooser) Intent.createChooser(intent, null) else intent)
@@ -87,10 +90,10 @@ internal class MagicActions(private val context: Context) {
         draft.endMillis?.let { putExtra(CalendarContract.EXTRA_EVENT_END_TIME, it) }
     })
 
-    suspend fun conversations(apps: List<LauncherApp>, packages: Set<String>): List<MagicConversation> = withContext(Dispatchers.IO) {
+    suspend fun conversations(apps: List<LauncherApp>, packages: Set<String>, preferred: String?): List<MagicConversation> = withContext(Dispatchers.IO) {
         if (!launcherApps.hasShortcutHostPermission()) return@withContext emptyList()
         val flags = LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC
-        apps.filter { !it.isPrivateSpace && it.packageName in packages && it.shortcut == null }
+        prioritizeMagicPackages(apps.filter { !it.isPrivateSpace && it.packageName in packages && it.shortcut == null }, preferred) { it.packageName }
             .distinctBy { it.packageName to it.userSerial }.flatMap { app ->
                 val user = app.user ?: Process.myUserHandle()
                 if (!eligible(app.packageName, user)) return@flatMap emptyList()

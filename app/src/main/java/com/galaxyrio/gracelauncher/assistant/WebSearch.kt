@@ -10,7 +10,7 @@ import java.net.URL
 import kotlinx.coroutines.*
 import org.json.JSONObject
 
-internal data class WebSource(val title: String, val url: String, val content: String) {
+internal data class WebSource(val title: String, val url: String, val content: String, val publishedDate: String? = null) {
     companion object {
         fun safeUrl(value: String): Boolean = runCatching {
             val uri = URI(value)
@@ -29,8 +29,54 @@ internal class WebSearchFailure(val reason: Reason) : Exception() {
     enum class Reason { KEY, LIMIT, NETWORK, RESULTS, REQUEST }
 }
 
+internal object WebToolText {
+    private const val prefix = "<|tool_call>call:search_web>"
+    private val markerStarts = listOf("<|", "|>", "tool_call", "call:")
+
+    fun suspicious(text: String): Boolean = markerStarts.any { text.contains(it, ignoreCase = true) } ||
+        listOf("<", "<|", "<|tool_call>call:").any { marker ->
+            (1..marker.length).any { text.endsWith(marker.take(it), ignoreCase = true) }
+        }
+
+    fun query(text: String): String? {
+        if (!text.startsWith(prefix)) return null
+        val query = text.removePrefix(prefix)
+        if (query != query.trim() || query.any { it in "\"'<>|" } || suspicious(query)) return null
+        return try { TavilySearch.validateQuery(query); query } catch (_: WebSearchFailure) { null }
+    }
+}
+
+internal class WebReplyBuffer {
+    private val text = StringBuilder()
+    fun append(chunk: String) { text.append(chunk) }
+    fun result(): String = text.toString()
+}
+
 /** No redirects, retries, raw error bodies, query logs, or transcript uploads. */
 internal object TavilySearch {
+    // shortcut: keyword heuristic misses news queries without news/headline words; upgrade to a model-chosen recency parameter if live tests show misses
+    internal fun newsTimeRange(query: String): String? =
+        if (Regex("\\b(news|headlines?)\\b", RegexOption.IGNORE_CASE).containsMatchIn(query)) {
+            if (Regex("\\b(today|tonight|latest|breaking)\\b", RegexOption.IGNORE_CASE).containsMatchIn(query)) "day" else "week"
+        } else null
+
+    private val historyRequest = Regex("\\b(history|historical|retrospectives?|anniversar(?:y|ies))\\b|\\bon this day\\b", RegexOption.IGNORE_CASE)
+    private val retrospectiveHeadline = Regex(
+        "\\b(today in history|this day in history|on this day in history|retrospective|a look back|looking back|years? ago today)\\b|^\\s*(on this day|anniversary)\\s*[:–—-]",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** Fresh article metadata does not make an explicitly retrospective story a current event. */
+    internal fun selectNewsSources(request: String, query: String, sources: List<WebSource>): List<WebSource> {
+        if (historyRequest.containsMatchIn(request) || (newsTimeRange(request) == null && newsTimeRange(query) == null)) return sources
+        return sources.filterNot { retrospectiveHeadline.containsMatchIn(it.title) }
+    }
+
+    internal fun publishedDate(value: String): String? {
+        val clean = value.filterNot { it.isISOControl() || it in '\u202a'..'\u202e' || it in '\u2066'..'\u2069' }
+        return clean.takeIf { it == value && it.length in 1..40 && it.matches(Regex("[A-Za-z0-9 ,:+./-]+")) }
+    }
+
     suspend fun search(query: String): List<WebSource> {
         validateQuery(query)
         if (BuildConfig.TAVILY_API_KEY.isBlank()) throw WebSearchFailure(WebSearchFailure.Reason.KEY)
@@ -50,9 +96,11 @@ internal object TavilySearch {
                                 setRequestProperty("Authorization", "Bearer ${BuildConfig.TAVILY_API_KEY}")
                                 setRequestProperty("Content-Type", "application/json")
                             }
-                            val body = JSONObject().put("query", query).put("search_depth", "basic")
+                            val request = JSONObject().put("query", query).put("search_depth", "basic")
                                 .put("max_results", 3).put("chunks_per_source", 1).put("include_answer", false)
-                                .put("include_raw_content", false).put("include_images", false).toString().toByteArray(Charsets.UTF_8)
+                                .put("include_raw_content", false).put("include_images", false).put("include_published_date", true)
+                            newsTimeRange(query)?.let { request.put("topic", "news").put("time_range", it) }
+                            val body = request.toString().toByteArray(Charsets.UTF_8)
                             connection.setFixedLengthStreamingMode(body.size)
                             connection.outputStream.use { it.write(body) }
                             when (connection.responseCode) {
@@ -100,7 +148,7 @@ internal object TavilySearch {
             val content = item.optString("content").trim()
             if (!WebSource.safeUrl(url) || content.isBlank()) null
             else WebSource(item.optString("title").filterNot { it.isISOControl() || it in '\u202a'..'\u202e' || it in '\u2066'..'\u2069' }
-                .take(160).ifBlank { URI(url).host }, url, content)
+                .take(160).ifBlank { URI(url).host }, url, content, publishedDate(item.optString("published_date", "")))
         }.distinctBy { it.url }.ifEmpty { throw WebSearchFailure(WebSearchFailure.Reason.RESULTS) }
     }
 }

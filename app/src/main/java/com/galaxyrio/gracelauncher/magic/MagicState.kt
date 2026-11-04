@@ -86,6 +86,8 @@ internal class MagicSession(val id: Long, val kind: MagicKind) {
 internal class MagicController {
     var session by mutableStateOf<MagicSession?>(null); private set
     var dataSource: MagicDataSource? = null
+    var fakeCall: ((String, Boolean) -> Boolean)? = null
+    var fakeCallPermission = false
     var eligible = false
     private var generation = 0L
     internal val keys = MagicKeySequence()

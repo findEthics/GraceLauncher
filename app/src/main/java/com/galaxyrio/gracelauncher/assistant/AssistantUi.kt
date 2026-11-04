@@ -127,7 +127,8 @@ internal fun AssistantChatWindow(
                                 turn.sources.forEachIndexed { index, source ->
                                     TextButton(onClick = { if (WebSource.safeUrl(source.url)) runCatching { uriHandler.openUri(source.url) } },
                                         modifier = Modifier.testTag("assistant_source:${turn.id}:$index")) {
-                                        Text("[${index + 1}] ${source.title} — ${URI(source.url).host}", style = MaterialTheme.typography.bodySmall)
+                                        Text("[${index + 1}] ${source.title} — ${URI(source.url).host}" +
+                                            (formatPublishedDate(source.publishedDate)?.let { " — $it" } ?: ""), style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
                             }

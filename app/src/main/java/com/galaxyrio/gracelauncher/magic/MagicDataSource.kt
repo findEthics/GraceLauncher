@@ -12,6 +12,7 @@ internal interface MagicDataSource {
     fun hasContactAccess(): Boolean
     fun installed(packageName: String): Boolean
     fun contacts(provider: String?): Flow<List<SearchContact>>
+    fun effectivePreferredPackage(provider: String?): String? = provider
     suspend fun conversations(apps: List<LauncherApp>, automatic: Boolean, provider: String?): List<MagicConversation>
     fun conversationEligible(conversation: MagicConversation): Boolean
 }
@@ -23,7 +24,8 @@ internal class PlatformMagicDataSource(context: Context, private val actions: Ma
     override fun hasContactAccess() = generic.hasAccess()
     override fun installed(packageName: String) = synced.installed(packageName)
     override fun contacts(provider: String?) = strictContactProvider(provider)?.let(synced::observe) ?: generic.observe()
+    override fun effectivePreferredPackage(provider: String?) = provider ?: actions.messaging.defaultMessagingPackage()
     override suspend fun conversations(apps: List<LauncherApp>, automatic: Boolean, provider: String?) =
-        actions.conversations(apps, actions.messaging.recentConversationPackages(automatic, provider))
+        actions.conversations(apps, actions.messaging.recentConversationPackages(automatic, provider), effectivePreferredPackage(provider))
     override fun conversationEligible(conversation: MagicConversation) = actions.conversationEligible(conversation)
 }

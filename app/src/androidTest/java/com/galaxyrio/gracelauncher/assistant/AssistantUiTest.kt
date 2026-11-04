@@ -62,6 +62,21 @@ class AssistantUiTest {
         compose.onNodeWithTag("assistant_response:$turn").assertTextEquals("Offline answer")
     }
 
+    @Test fun sourceCardsShowOnlyAvailablePublishedDates() {
+        val chat = AssistantChatState()
+        val turn = chat.begin("news", false)
+        chat.searchDetails(turn, listOf(WebSource("Dated", "https://example.org", "evidence", "2026-11-03"),
+            WebSource("Undated", "https://example.com", "evidence")), "")
+        chat.update(turn, "Summary", complete = true)
+        compose.setContent { MaterialTheme {
+            AssistantChatWindow(chat, false, true, "", onSend = {}, onStop = {}, onClose = chat::clear)
+        } }
+        closeSoftKeyboard()
+        val date = formatPublishedDate("2026-11-03")!!
+        compose.onNodeWithTag("assistant_source:$turn:0").assertTextEquals("[1] Dated — example.org — $date")
+        compose.onNodeWithTag("assistant_source:$turn:1").assertTextEquals("[2] Undated — example.com")
+    }
+
     @Test fun advancedExposesGemma4WithoutSpeechSetup() {
         compose.setContent { MaterialTheme { AssistantSettings() } }
         compose.onNodeWithTag("assistant_model_Gemma4").assertExists()
