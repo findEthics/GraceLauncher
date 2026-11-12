@@ -17,6 +17,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import com.galaxyrio.gracelauncher.platform.LauncherAppTransitions
+import com.galaxyrio.gracelauncher.platform.launchNotesCapture
+import com.galaxyrio.gracelauncher.platform.notesCaptureAction
 import com.galaxyrio.gracelauncher.ui.LauncherAppTheme
 import com.galaxyrio.gracelauncher.ui.LauncherRoute
 import com.galaxyrio.gracelauncher.ui.LauncherViewModel
@@ -86,6 +88,21 @@ class MainActivity : ComponentActivity() {
     // AndroidX marks its override restricted; this must still delegate to Android's public dispatch chain.
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Match physical keys before Unicode command routing: Alt may produce a symbol on Titan keyboards.
+        val capture = notesCaptureAction(
+            keyCode = event.keyCode,
+            action = event.action,
+            repeatCount = event.repeatCount,
+            metaState = event.metaState,
+            textEditorFocused = currentFocus?.onCheckIsTextEditor() == true,
+            idleHome = launcherViewModel.magic.eligible,
+            inputActive = launcherViewModel.magic.session != null || launcherViewModel.magic.searchOpening ||
+                launcherViewModel.assistant.chat.visible || launcherViewModel.assistant.composerFocused,
+        )
+        if (capture != null && !event.isCanceled) {
+            launchNotesCapture(this, capture)
+            return true
+        }
         if (launcherViewModel.magic.hardwareKey(event, currentFocus?.onCheckIsTextEditor() == true)) return true
         if (launcherViewModel.assistant.hardwareKey(event, currentFocus?.onCheckIsTextEditor() == true)) return true
         if (homeAppNavigation.key(event, currentFocus?.onCheckIsTextEditor() == true)) return true

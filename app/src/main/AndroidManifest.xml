@@ -29,6 +29,7 @@
         tools:ignore="QueryAllPackagesPermission" />
 
     <queries>
+        <package android:name="com.example.notes" />
         <package android:name="org.breezyweather" />
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />

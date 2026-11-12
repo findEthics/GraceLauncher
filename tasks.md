@@ -1,5 +1,13 @@
 # Tasks
 
+## Notes quick capture — 2026-11-12
+
+- [x] Idle-Home Alt+N / Alt+T / Alt+A send package-scoped NEW_NOTE / NEW_TODO / APPEND_NOTE intents to `com.example.notes`; initial KeyDown only, exact Alt modifier, no text/Magic/search/chat input. Physical-key matching precedes Unicode Magic/assistant routing so Titan Alt symbols cannot steal these chords.
+- [x] Add Notes package visibility, unavailable-app toast, and Advanced keyboard-command help. No existing explicit Alt+N/T/A binding found; other routing unchanged.
+- [x] JDK21/SDK37: `bash ./gradlew :app:assembleDebug :app:lintDebug :app:testDebugUnitTest` assembled debug and passed all 186 JVM tests (6 new mapping tests), zero failures/errors/skips. `git diff --check` passed.
+- [ ] Full command remains blocked by existing `RememberInComposition` lint error at `ui/home/HomeScreen.kt:269` (`FocusRequester()` inside `getOrPut`, unchanged from HEAD); lint reports 1 error, 604 warnings, 1 hint. Not fixed outside this task. Log: `/private/var/folders/d4/g73rwlh56w3b712vq80zl2y40000gn/T/opencode/launcher-notes-capture-checks.log`.
+- [ ] No installs/device/emulator checks run. Real cross-app success, unavailable-app toast, focus integration and Titan key delivery remain unverified; Notes intent endpoints are being implemented separately.
+
 ## Home interaction update — 2026-11-06
 
 - [x] Home row tap uses the existing eligible notification preview; otherwise launches. Trailing arrow and action/profile guards retained.
