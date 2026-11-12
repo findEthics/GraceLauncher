@@ -415,10 +415,11 @@ class MagicHomeKeyboardTest {
         }
     }
 
-    @Test fun parenthesisAndAltTOpenTodoWindowAndPrefixesRemainLiteralInput() {
+    @Test fun parenthesisMinusAndAltTOpenTodoWindowAndPrefixesRemainLiteralInput() {
         val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
         for ((keyCode, modifiers) in listOf(
             KeyEvent.KEYCODE_9 to KeyEvent.META_SHIFT_ON,
+            KeyEvent.KEYCODE_MINUS to 0,
             KeyEvent.KEYCODE_T to KeyEvent.META_ALT_ON,
         )) {
             compose.runOnUiThread {
@@ -432,6 +433,7 @@ class MagicHomeKeyboardTest {
             compose.onNodeWithTag("magic_input").assertIsFocused()
             val opened = checkNotNull(magic.session)
             for ((literalKey, literalModifiers) in listOf(
+                KeyEvent.KEYCODE_MINUS to 0,
                 KeyEvent.KEYCODE_COMMA to 0,
                 KeyEvent.KEYCODE_9 to KeyEvent.META_SHIFT_ON,
             )) {
@@ -440,10 +442,10 @@ class MagicHomeKeyboardTest {
                 instrumentation.sendKeySync(literal)
                 instrumentation.sendKeySync(KeyEvent.changeAction(literal, KeyEvent.ACTION_UP))
             }
-            compose.onNodeWithTag("magic_input").assertTextContains(",(").assertIsFocused()
+            compose.onNodeWithTag("magic_input").assertTextContains("-,(").assertIsFocused()
             compose.runOnUiThread {
                 assertSame(opened, magic.session)
-                assertEquals(",(", opened.input.text)
+                assertEquals("-,(", opened.input.text)
                 assertTrue(compose.activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
                 assertFalse(compose.activity.isFinishing)
                 assertFalse(assistant.chat.visible)
@@ -519,14 +521,24 @@ class MagicHomeKeyboardTest {
         compose.runOnUiThread { assertNull(magic.session!!.selectedNote); assertEquals(-1, magic.session!!.selectedIndex) }
     }
 
-    @Test fun submittingTodoSavesShowsAddedToastAndClosesWindow() {
-        compose.runOnUiThread { magic.open(MagicKind.Todo) }
-        compose.onNodeWithTag("magic_input").performTextInput("Buy milk")
+    @Test fun minusOpenedTodoSavesLiteralHyphenShowsAddedToastAndClosesWindow() {
+        compose.runOnUiThread {
+            val opener = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MINUS)
+            assertTrue(compose.activity.dispatchKeyEvent(opener))
+            assertTrue(compose.activity.dispatchKeyEvent(KeyEvent.changeAction(opener, KeyEvent.ACTION_UP)))
+            assertEquals(MagicKind.Todo, magic.session?.kind)
+            assertEquals("", magic.session?.input?.text)
+        }
+        compose.onNodeWithTag("magic_input").assertIsFocused().performTextInput("Check")
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MINUS)
+        compose.onNodeWithTag("magic_input").performTextInput("in")
+        compose.onNodeWithTag("magic_input").assertTextContains("Check-in")
         compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Enter) }
         compose.waitUntil(5_000) { magic.session == null }
         compose.onNodeWithTag("magic_window").assertDoesNotExist()
         compose.runOnUiThread {
-            assertEquals(listOf(Triple("Buy milk", true, null)), synthetic.saves)
+            assertEquals(listOf(Triple("Check-in", true, null)), synthetic.saves)
             assertEquals(listOf("To-do added"), synthetic.toasts)
         }
     }

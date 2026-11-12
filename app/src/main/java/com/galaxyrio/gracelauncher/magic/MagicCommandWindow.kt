@@ -5,7 +5,6 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,10 +17,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentDataType
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
@@ -366,32 +372,60 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                     }
                 }
             }
+            val inputFocused = remember { mutableStateOf(false) }
+            val focusedBorder = MaterialTheme.colorScheme.primary
+            val unfocusedBorder = MaterialTheme.colorScheme.outlineVariant
+            val hasAuxiliaryHeader = s.selectedNote != null || s.recipient != null || s.conversation != null ||
+                (s.kind.usesContacts && !contactsGranted && s.recipient == null && s.conversation == null) ||
+                (s.kind == MagicKind.Event && s.input.text.isNotBlank()) || s.status.isNotBlank()
             Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainer,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                border = null,
+                modifier = Modifier.clip(RoundedCornerShape(28.dp)).drawWithContent {
+                    drawContent()
+                    // Observe focus only while drawing so dialog focus changes cannot recompose confirmation state.
+                    val focused = inputFocused.value
+                    val strokePx = (if (focused) 2.dp else 1.dp).toPx()
+                    val inset = strokePx / 2f
+                    drawRoundRect(
+                        color = if (focused) focusedBorder else unfocusedBorder,
+                        topLeft = Offset(inset, inset),
+                        size = Size(size.width - strokePx, size.height - strokePx),
+                        cornerRadius = CornerRadius(28.dp.toPx() - inset),
+                        style = Stroke(width = strokePx),
+                    )
+                }) {
                 Column(Modifier.padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (s.selectedNote != null || s.recipient != null || s.conversation != null) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text((s.selectedNote?.title ?: s.recipient?.displayName ?: s.conversation?.target?.label).orEmpty(),
-                                Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (s.selectedNote != null) TextButton(onClick = { s.chooseNote(null); focus.requestFocus() }, enabled = !s.consumed) {
-                                Text(stringResource(R.string.magic_clear))
+                    if (hasAuxiliaryHeader) {
+                        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (s.selectedNote != null || s.recipient != null || s.conversation != null) {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Text((s.selectedNote?.title ?: s.recipient?.displayName ?: s.conversation?.target?.label).orEmpty(),
+                                        Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (s.selectedNote != null) TextButton(onClick = { s.chooseNote(null); focus.requestFocus() }, enabled = !s.consumed) {
+                                        Text(stringResource(R.string.magic_clear))
+                                    }
+                                }
                             }
+                            s.recipient?.let { Text(it.address, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("magic_recipient_number")) }
+                            if (s.kind.usesContacts && !contactsGranted && s.recipient == null && s.conversation == null)
+                                TextButton(onClick = { if (contactsSource.externalActionsAllowed) contactPermission.launch(Manifest.permission.READ_CONTACTS) }) { Text(stringResource(R.string.magic_grant_contacts)) }
+                            if (s.kind == MagicKind.Event && s.input.text.isNotBlank()) {
+                                Text(parsed.draft.title, style = MaterialTheme.typography.bodyMedium)
+                                val start = parsed.draft.startMillis
+                                if (start != null) Text(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).format(Instant.ofEpochMilli(start).atZone(ZoneId.systemDefault())), style = MaterialTheme.typography.bodySmall)
+                                if (parsed is CalendarParseResult.NeedsReview || parsed is CalendarParseResult.Invalid || parsed.draft.warnings.isNotEmpty())
+                                    Text(stringResource(R.string.magic_calendar_review), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (s.status.isNotBlank()) Text(s.status, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("magic_status"))
                         }
                     }
-                    s.recipient?.let { Text(it.address, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("magic_recipient_number")) }
-                    if (s.kind.usesContacts && !contactsGranted && s.recipient == null && s.conversation == null)
-                        TextButton(onClick = { if (contactsSource.externalActionsAllowed) contactPermission.launch(Manifest.permission.READ_CONTACTS) }) { Text(stringResource(R.string.magic_grant_contacts)) }
-                    if (s.kind == MagicKind.Event && s.input.text.isNotBlank()) {
-                        Text(parsed.draft.title, style = MaterialTheme.typography.bodyMedium)
-                        val start = parsed.draft.startMillis
-                        if (start != null) Text(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).format(Instant.ofEpochMilli(start).atZone(ZoneId.systemDefault())), style = MaterialTheme.typography.bodySmall)
-                        if (parsed is CalendarParseResult.NeedsReview || parsed is CalendarParseResult.Invalid || parsed.draft.warnings.isNotEmpty())
-                            Text(stringResource(R.string.magic_calendar_review), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    }
-                    if (s.status.isNotBlank()) Text(s.status, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("magic_status"))
                     MagicEditorInput(recipientSearch) {
                         OutlinedTextField(value = s.input, onValueChange = { if (!s.consumed) s.input = it },
-                            modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { if (it.isFocused) c.focused() }
+                            modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged {
+                                inputFocused.value = it.isFocused
+                                if (it.isFocused) c.focused()
+                            }
                                 .semantics {
                                     contentDescription = inputDescription
                                     // Compose 1.12.1 excludes this virtual editor from autofill, preserving accessibility.
@@ -416,6 +450,12 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                                         else -> false
                                     }
                                 }, shape = RoundedCornerShape(28.dp), maxLines = editorLines,
+                              colors = OutlinedTextFieldDefaults.colors(
+                                  focusedBorderColor = Color.Transparent,
+                                  unfocusedBorderColor = Color.Transparent,
+                                  disabledBorderColor = Color.Transparent,
+                                  errorBorderColor = Color.Transparent,
+                              ),
                              prefix = { Text(s.kind.prefix.toString()) },
                              placeholder = if (s.kind == MagicKind.Todo || s.kind == MagicKind.Note) ({ Text(inputDescription, maxLines = 1, overflow = TextOverflow.Ellipsis) }) else null,
                              trailingIcon = {
@@ -451,8 +491,13 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
         AlertDialog(onDismissRequest = ::dismissCall, title = {
             val view = LocalView.current
             DisposableEffect(view) {
-                val listener = android.view.ViewTreeObserver.OnWindowFocusChangeListener { focused ->
+                 val listener = android.view.ViewTreeObserver.OnWindowFocusChangeListener { focused ->
                     if (!focused) callKeyDown = null
+                    else {
+                        // A newly shown dialog can gain window focus after the initial focus request.
+                        inputModeManager.requestInputMode(InputMode.Keyboard)
+                        callFocus.requestFocus()
+                    }
                 }
                 view.viewTreeObserver.addOnWindowFocusChangeListener(listener)
                 onDispose { if (view.viewTreeObserver.isAlive) view.viewTreeObserver.removeOnWindowFocusChangeListener(listener) }

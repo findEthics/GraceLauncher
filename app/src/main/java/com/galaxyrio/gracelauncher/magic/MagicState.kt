@@ -161,10 +161,11 @@ internal class MagicController {
                 open(captureKind)
                 return true
             }
-            if (character in "@#+?(,".map(Char::code)) {
+            if (character in "@#+?(,-".map(Char::code) &&
+                (character != '-'.code || metaState and KeyEvent.META_ALT_MASK == 0)) {
                 keys.openingKey = keyCode
                 if (character == '?'.code) { searchOpening = true; onOpenSearch?.invoke() }
-                else open(MagicKind.entries.first { it.prefix.code == character })
+                else open(if (character == '-'.code) MagicKind.Todo else MagicKind.entries.first { it.prefix.code == character })
                 return true
             }
         }

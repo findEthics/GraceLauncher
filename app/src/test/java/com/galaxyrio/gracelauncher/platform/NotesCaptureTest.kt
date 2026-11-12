@@ -19,6 +19,7 @@ class NotesCaptureTest {
     @Test fun unicodeAndHardwareAltOpenTheFloatingKinds() {
         for ((input, expected) in listOf(
             Triple(KeyEvent.KEYCODE_T, '(', 0) to MagicKind.Todo,
+            Triple(KeyEvent.KEYCODE_MINUS, '-', 0) to MagicKind.Todo,
             Triple(KeyEvent.KEYCODE_N, ',', 0) to MagicKind.Note,
             Triple(KeyEvent.KEYCODE_T, '\u0000', KeyEvent.META_ALT_ON) to MagicKind.Todo,
             Triple(KeyEvent.KEYCODE_N, '\u0000', KeyEvent.META_ALT_ON) to MagicKind.Note,
@@ -28,6 +29,62 @@ class NotesCaptureTest {
             assertTrue(controller.press(input.first, input.second, input.third))
             assertEquals(expected, controller.session?.kind)
             assertEquals("", controller.session?.input?.text)
+        }
+    }
+
+    @Test fun minusOpensEmptyTodoAndOwnsOpeningRepeatAndRelease() {
+        val controller = MagicController().apply { eligible = true }
+        assertTrue(controller.press(KeyEvent.KEYCODE_MINUS, '-'))
+        val session = controller.session
+        assertEquals(MagicKind.Todo, session?.kind)
+        assertEquals("", session?.input?.text)
+        assertTrue(controller.press(KeyEvent.KEYCODE_MINUS, '-', repeat = 1))
+        controller.focused()
+        assertTrue(controller.press(KeyEvent.KEYCODE_MINUS, '-', focused = true, repeat = 2))
+        assertSame(session, controller.session)
+        assertEquals("", session?.input?.text)
+        assertTrue(controller.press(KeyEvent.KEYCODE_MINUS, action = KeyEvent.ACTION_UP))
+        assertFalse(controller.press(KeyEvent.KEYCODE_MINUS, action = KeyEvent.ACTION_UP))
+        controller.close()
+        assertFalse(controller.press(KeyEvent.KEYCODE_MINUS, '-', repeat = 3))
+        assertNull(controller.session)
+    }
+
+    @Test fun minusRequiresEligibleHomeWithoutAnEditorOrControlAltMeta() {
+        for (eligible in listOf(false, true)) for (focused in listOf(false, true)) {
+            if (eligible && !focused) continue
+            val controller = MagicController().apply { this.eligible = eligible }
+            assertFalse(controller.press(KeyEvent.KEYCODE_MINUS, '-', focused = focused))
+            assertNull(controller.session)
+            assertFalse(controller.press(KeyEvent.KEYCODE_MINUS, action = KeyEvent.ACTION_UP))
+        }
+        for (meta in listOf(KeyEvent.META_CTRL_ON, KeyEvent.META_ALT_ON, KeyEvent.META_META_ON)) {
+            val controller = MagicController().apply { eligible = true }
+            assertFalse(controller.press(KeyEvent.KEYCODE_MINUS, '-', meta = meta))
+            assertNull(controller.session)
+        }
+    }
+
+    @Test fun minusInEveryOpenSessionQueuesBeforeFocusAndPassesThroughAfterFocus() {
+        for (kind in MagicKind.entries) {
+            val controller = MagicController().apply { eligible = true; open(kind) }
+            val session = checkNotNull(controller.session)
+            session.append("follow")
+            assertFalse(controller.press(KeyEvent.KEYCODE_MINUS, '-', focused = true))
+            assertSame(session, controller.session)
+            assertEquals("follow", session.input.text)
+            assertFalse(controller.press(KeyEvent.KEYCODE_MINUS, action = KeyEvent.ACTION_UP))
+            assertTrue(controller.press(KeyEvent.KEYCODE_MINUS, '-'))
+            assertSame(session, controller.session)
+            assertEquals("follow-", session.input.text)
+            assertTrue(controller.press(KeyEvent.KEYCODE_MINUS, action = KeyEvent.ACTION_UP))
+            controller.focused()
+            for (editorFocused in listOf(false, true)) {
+                assertFalse(controller.press(KeyEvent.KEYCODE_MINUS, '-', focused = editorFocused))
+                assertFalse(controller.press(KeyEvent.KEYCODE_MINUS, action = KeyEvent.ACTION_UP))
+                assertSame(session, controller.session)
+                assertEquals("follow-", session.input.text)
+            }
         }
     }
 
