@@ -27,12 +27,15 @@ class AssistantUiTest {
         compose.setContent { MaterialTheme {
             AssistantChatWindow(chat, false, true, "", onSend = { chat.begin(chat.draft, false) }, onStop = {}, onClose = chat::clear)
         } }
-        compose.onNodeWithTag("assistant_web_chip").assertDoesNotExist()
+        compose.onNodeWithTag("assistant_web_chip").assertIsSelected()
         compose.onNodeWithTag("assistant_tools").performClick()
-        compose.onNodeWithTag("assistant_web_search_option").assertIsOff()
+        compose.onNodeWithTag("assistant_web_search_option").assertIsOn()
         val screenshot = File(InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir("test-screenshots"), "assistant-tools-rounded.png")
         screenshot.outputStream().use { compose.onNodeWithTag("assistant_tools_menu").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it) }
         compose.onNodeWithTag("assistant_web_search_option").performClick()
+        compose.onNodeWithTag("assistant_web_chip").assertDoesNotExist()
+        compose.onNodeWithTag("assistant_tools").performClick()
+        compose.onNodeWithTag("assistant_web_search_option").assertIsOff().performClick()
         compose.onNodeWithTag("assistant_web_chip").assertIsSelected()
             .assertContentDescriptionEquals(compose.activity.getString(R.string.assistant_remove_web_search))
         compose.onNodeWithTag("assistant_tools").performClick()
@@ -44,7 +47,13 @@ class AssistantUiTest {
         compose.onNodeWithTag("assistant_chat_input").performImeAction()
         compose.runOnIdle { assertTrue(chat.turns.single().webSearch); assertTrue(chat.webSearchEnabled) }
         compose.onNodeWithTag("assistant_web_chip").performClick().assertDoesNotExist()
-        compose.runOnIdle { assertFalse(chat.webSearchEnabled) }
+        compose.runOnIdle {
+            assertFalse(chat.webSearchEnabled)
+            chat.minimize(); chat.open()
+            assertFalse(chat.webSearchEnabled)
+            chat.clear(); chat.open()
+        }
+        compose.onNodeWithTag("assistant_web_chip").assertIsSelected()
     }
 
     @Test fun searchFailureWarningAndStructuredSourcesRemainVisible() {
@@ -99,7 +108,7 @@ class AssistantUiTest {
         }
         try {
             compose.setContent { MaterialTheme { AssistantSettings() } }
-            val toggle = compose.onNodeWithTag("assistant_show_home_button")
+            val toggle = compose.onNodeWithTag("assistant_show_home_button").performScrollTo()
             toggle.assertContentDescriptionEquals(context.getString(R.string.assistant_show_home_button))
             toggle.assertIsOn().performClick().assertIsOff()
             compose.runOnUiThread {
@@ -225,9 +234,13 @@ class AssistantUiTest {
             val enabled = controller.enabled
             try {
                 controller.enable(true)
+                controller.homeShortcutEligible = true
+                // @ belongs to Magic; the assistant must leave it for that dispatcher.
+                assertFalse(controller.hardwareKey(AndroidKeyEvent(0, 0, AndroidKeyEvent.ACTION_DOWN,
+                    AndroidKeyEvent.KEYCODE_2, 0, AndroidKeyEvent.META_SHIFT_ON), false))
+                assertFalse(controller.chat.visible)
                 for ((key, prefix, meta) in listOf(
                     Triple(AndroidKeyEvent.KEYCODE_1, "!", AndroidKeyEvent.META_SHIFT_ON),
-                    Triple(AndroidKeyEvent.KEYCODE_2, "", AndroidKeyEvent.META_SHIFT_ON),
                     Triple(AndroidKeyEvent.KEYCODE_SPACE, "", 0),
                 )) {
                     val down = AndroidKeyEvent(0, 0, AndroidKeyEvent.ACTION_DOWN, key, 0, meta)

@@ -85,6 +85,7 @@ class AppNotificationUiTest {
                         initialDrawerOpen = drawer,
                         actions = LauncherActions(
                             shortcuts = { shortcuts }, cachedShortcuts = { shortcuts },
+                            launchAppAt = { _, _ -> launchedApps++ },
                             dismissNotification = ::dismiss,
                             dismissNotifications = { items ->
                                 bulkDismissals += items
@@ -115,6 +116,27 @@ class AppNotificationUiTest {
     private fun assertPreviewTextVisible(text: String, ancestorTag: String) {
         val bounds = previewTextBounds(text, ancestorTag)
         assertTrue("'$text' under $ancestorTag has empty bounds: $bounds", bounds.width > 0 && bounds.height > 0)
+    }
+
+    @Test fun homeRowTapOpensPreviewWithoutLaunchingAndRemovalRestoresLaunch() {
+        show(shortcutAccess = false)
+        compose.onNodeWithTag("app:${app.key}").performTouchInput { click() }
+        compose.onNodeWithTag("notification:${message.key}").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(0, launchedApps); assertTrue(opened.isEmpty()) }
+        compose.runOnIdle { notifications = emptyList() }
+        compose.onNodeWithTag("notification:${message.key}").assertDoesNotExist()
+        compose.onNodeWithTag("shortcut_popup").performSemanticsAction(SemanticsActions.Dismiss) { it() }
+        compose.onNodeWithTag("shortcut_popup").assertDoesNotExist()
+        compose.onNodeWithTag("app:${app.key}").performTouchInput { click() }
+        compose.runOnIdle { assertEquals(1, launchedApps); assertTrue(opened.isEmpty()) }
+    }
+
+    @Test fun otherProfileNotificationDoesNotInterceptPersonalRowTap() {
+        notifications = listOf(message.copy(userSerial = 77L))
+        show()
+        compose.onNodeWithTag("app:${app.key}").performClick()
+        compose.onNodeWithTag("shortcut_popup").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(1, launchedApps); assertTrue(opened.isEmpty()) }
     }
 
     @Test fun homePreviewArrowOpensNotificationAboveShortcutsAndLastDismissClosesPopup() {

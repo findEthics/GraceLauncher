@@ -26,6 +26,14 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
@@ -119,6 +127,8 @@ fun HomeScreen(
     onTopOffsetChange: (Float) -> Unit = {},
     onWidgetHeightChange: (Int) -> Unit = {},
     onSearch: (() -> Unit)? = null,
+    navigation: HomeAppNavigation? = null,
+    navigationEnabled: Boolean = true,
 ) {
     val now by produceState(initialValue = Instant.now()) {
         while (true) {
@@ -140,8 +150,38 @@ fun HomeScreen(
         playing = false, canToggle = true, canPrevious = false, canNext = false,
     ) else null
     val listState = rememberLazyListState()
+    val inputModeManager = LocalInputModeManager.current
+    var selectedAppKey by remember { mutableStateOf<String?>(null) }
+    val focusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    SideEffect {
+        focusRequesters.keys.retainAll(favorites.map { it.key }.toSet())
+        navigation?.move = if (navigationEnabled && !editingLayout) { direction ->
+            if (favorites.isEmpty()) false else {
+                inputModeManager.requestInputMode(InputMode.Keyboard)
+                val current = favorites.indexOfFirst { it.key == selectedAppKey }
+                val next = if (current < 0) {
+                    if (direction > 0) 0 else favorites.lastIndex
+                } else (current + direction).coerceIn(0, favorites.lastIndex)
+                selectedAppKey = favorites[next].key
+                true
+            }
+        } else null
+    }
+    DisposableEffect(navigation) { onDispose { navigation?.move = null } }
+    LaunchedEffect(favorites, navigationEnabled) {
+        if (!navigationEnabled || favorites.none { it.key == selectedAppKey }) selectedAppKey = null
+    }
     val homeLayout = uiState.settings.homeLayout
     val hostedWidget = if (homeLayout.hasWidget && !uiState.isLoadingSettings && !uiState.settingsLoadFailed) rememberHostedWidget(homeLayout) else null
+    LaunchedEffect(selectedAppKey, navigationEnabled) {
+        val index = favorites.indexOfFirst { it.key == selectedAppKey }
+        if (navigationEnabled && index >= 0) {
+            val prefix = 1 + (if (hostedWidget != null) 1 else 0) + (if (media != null) 1 else 0)
+            listState.animateScrollToItem(prefix + index)
+            withFrameNanos { }
+            focusRequesters[selectedAppKey]?.requestFocus()
+        }
+    }
     var topOffset by remember(homeLayout.topOffsetDp) { mutableFloatStateOf(homeLayout.topOffsetDp) }
     var widgetHeight by remember(homeLayout.widgetId, homeLayout.widgetHeightDp) { mutableFloatStateOf(homeLayout.widgetHeightDp.toFloat()) }
     var headerHeightPx by remember { mutableIntStateOf(0) }
@@ -226,11 +266,16 @@ fun HomeScreen(
             Spacer(Modifier.height(2.dp))
         }
         items(favorites, key = LauncherApp::key, contentType = { if (it.folderId == null) "app" else "folder" }) { app ->
+            val focusRequester = focusRequesters.getOrPut(app.key) { FocusRequester() }
+            val rowModifier = Modifier.focusRequester(focusRequester).onFocusChanged {
+                if (it.isFocused && navigationEnabled) selectedAppKey = app.key
+            }
             val folder = app.folderId?.let { id -> uiState.folders.firstOrNull { it.id == id } }
             if (folder != null) FolderRow(
                 folder = folder,
                 app = app,
-                highlighted = highlightedAppKey == folder.key,
+                modifier = rowModifier,
+                highlighted = highlightedAppKey == folder.key || selectedAppKey == folder.key,
                 onOpen = { onOpenFolder(folder, it) },
                 onLongClick = { onEditFolder(folder) },
                 onDrag = { bounds, expanded -> onFolderDrag(folder, bounds, expanded) },
@@ -242,7 +287,9 @@ fun HomeScreen(
                 onLongClick = { onAppDetails(app) },
                 onSwipeRight = { onAppShortcuts(app, it) },
                 gestures = rowGestures,
-                highlighted = highlightedAppKey == app.key,
+                modifier = rowModifier,
+                highlighted = highlightedAppKey == app.key || selectedAppKey == app.key,
+                openNotificationsOnClick = true,
                 notifications = uiState.notificationsFor(app),
                 showLabel = !uiState.settings.hideFavoriteNames,
             )

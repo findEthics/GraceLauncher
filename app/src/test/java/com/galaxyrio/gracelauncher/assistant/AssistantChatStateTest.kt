@@ -6,8 +6,7 @@ import org.junit.Test
 class AssistantChatStateTest {
     @Test fun searchSelectionIsSessionScopedAndActionsStayLocal() {
         val chat = AssistantChatState()
-        assertFalse(chat.webSearchEnabled)
-        chat.webSearchEnabled = true
+        assertTrue(chat.webSearchEnabled)
         val first = chat.begin("news", false)
         chat.searchDetails(first, listOf(WebSource("Source", "https://example.org", "text")), "warning")
         chat.update(first, "answer", complete = true, inContext = true)
@@ -20,9 +19,11 @@ class AssistantChatStateTest {
         chat.webSearchEnabled = false
         chat.begin("offline", false)
         assertFalse(chat.turns.last().webSearch)
+        chat.minimize(); chat.open()
+        assertFalse(chat.webSearchEnabled)
         chat.clear()
         chat.searchDetails(first, emptyList(), "late")
-        assertFalse(chat.webSearchEnabled)
+        assertTrue(chat.webSearchEnabled)
         assertTrue(chat.turns.isEmpty())
     }
     @Test fun sourceLinksAndQueriesAreValidatedAndUnicodeBoundsPreserveCharacters() {

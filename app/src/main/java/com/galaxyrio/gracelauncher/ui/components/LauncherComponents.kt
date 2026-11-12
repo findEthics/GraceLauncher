@@ -159,6 +159,7 @@ fun LauncherAppRow(
     highlighted: Boolean = false,
     notifications: List<AppNotification> = emptyList(),
     showLabel: Boolean = true,
+    openNotificationsOnClick: Boolean = false,
 ) {
     val eligibleNotifications = notifications.filter {
         app.shortcut == null && !app.isPrivateSpace &&
@@ -171,7 +172,12 @@ fun LauncherAppRow(
     LauncherRow(
         rowKey = "app:${app.key}",
         label = app.label,
-        onClick = { _, iconBounds -> gestures.onLaunchAt?.invoke(app, iconBounds) ?: onClick() },
+        onClick = { _, iconBounds ->
+            if (openNotificationsOnClick && eligibleNotifications.isNotEmpty()) {
+                gestures.onPrepare(app)
+                onSwipeRight(iconBounds)
+            } else gestures.onLaunchAt?.invoke(app, iconBounds) ?: onClick()
+        },
         onLongClick = onLongClick,
         onOpen = onSwipeRight,
         onPrepare = { gestures.onPrepare(app) },

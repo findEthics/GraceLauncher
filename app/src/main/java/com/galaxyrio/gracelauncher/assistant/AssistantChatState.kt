@@ -21,7 +21,7 @@ class AssistantChatState {
         set(value) { input = TextFieldValue(value, TextRange(value.length)) }
     internal var turns by mutableStateOf<List<ChatTurn>>(emptyList()); private set
     var contextDropped by mutableStateOf(false); private set
-    var webSearchEnabled by mutableStateOf(false)
+    var webSearchEnabled by mutableStateOf(true)
     private var nextId = 0L // Never reuse an id after Close; late completions cannot enter the new chat.
 
     fun open(actionShortcut: Boolean = false) {
@@ -29,7 +29,7 @@ class AssistantChatState {
         visible = true
     }
     fun minimize() { visible = false }
-    fun clear() { visible = false; draft = ""; turns = emptyList(); contextDropped = false; webSearchEnabled = false }
+    fun clear() { visible = false; draft = ""; turns = emptyList(); contextDropped = false; webSearchEnabled = true }
     internal fun begin(request: String, action: Boolean): Long {
         val turn = ChatTurn(++nextId, request, action, webSearch = webSearchEnabled && !action)
         turns = turns + turn

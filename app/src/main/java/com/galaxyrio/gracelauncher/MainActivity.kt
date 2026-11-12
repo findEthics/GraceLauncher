@@ -23,6 +23,7 @@ import com.galaxyrio.gracelauncher.ui.LauncherViewModel
 import com.galaxyrio.gracelauncher.ui.components.LocalAppTransitions
 
 class MainActivity : ComponentActivity() {
+    internal val homeAppNavigation = com.galaxyrio.gracelauncher.ui.home.HomeAppNavigation()
     private val launcherViewModel: LauncherViewModel by viewModels()
     private var widgetEditRequest by mutableIntStateOf(0)
     private val appTransitions by lazy { LauncherAppTransitions(this, lifecycleScope) }
@@ -67,6 +68,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        homeAppNavigation.release()
         appTransitions.close()
         super.onPause()
     }
@@ -86,7 +88,18 @@ class MainActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (launcherViewModel.magic.hardwareKey(event, currentFocus?.onCheckIsTextEditor() == true)) return true
         if (launcherViewModel.assistant.hardwareKey(event, currentFocus?.onCheckIsTextEditor() == true)) return true
+        if (homeAppNavigation.key(event, currentFocus?.onCheckIsTextEditor() == true)) return true
         return super.dispatchKeyEvent(event)
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (homeAppNavigation.motion(event, currentFocus?.onCheckIsTextEditor() == true)) return true
+        return super.dispatchGenericMotionEvent(event)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus) homeAppNavigation.release()
     }
 
     companion object { const val EXTRA_EDIT_WIDGET = "editHomeWidget" }

@@ -505,6 +505,7 @@ fun LauncherRoute(
             onLaunchApp = { app -> launchApp(app, null) },
             onToggleFavorite = viewModel::toggleFavorite,
             actions = actions,
+            homeAppNavigation = (context as? MainActivity)?.homeAppNavigation,
         )
     }
 }
@@ -518,6 +519,7 @@ internal fun LauncherScreen(
     onLaunchApp: (LauncherApp) -> Unit,
     onToggleFavorite: (LauncherApp) -> Unit,
     actions: LauncherActions = LauncherActions(),
+    homeAppNavigation: com.galaxyrio.gracelauncher.ui.home.HomeAppNavigation? = null,
     initialDrawerOpen: Boolean = false,
     widgetEditRequest: Int = 0,
     assistant: com.galaxyrio.gracelauncher.assistant.AssistantController? = null,
@@ -819,6 +821,8 @@ internal fun LauncherScreen(
             HomeScreen(
                 uiState = uiState,
                 topSpace = homeTop,
+                navigation = homeAppNavigation,
+                navigationEnabled = homeGesturesEnabled,
                 onLaunchApp = onLaunchApp,
                 onAppDetails = { overlay = LauncherOverlay.AppDetails(it) },
                 onAppShortcuts = { app, bounds -> overlay = LauncherOverlay.Shortcuts(app, bounds) },
