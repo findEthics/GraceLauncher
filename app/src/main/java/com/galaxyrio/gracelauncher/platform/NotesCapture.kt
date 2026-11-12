@@ -1,44 +1,36 @@
 package com.galaxyrio.gracelauncher.platform
 
-import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.Intent
-import android.view.KeyEvent
-import android.widget.Toast
-import com.galaxyrio.gracelauncher.R
+import android.net.Uri
+import android.os.Bundle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
-internal fun notesCaptureAction(
-    keyCode: Int,
-    action: Int,
-    repeatCount: Int,
-    metaState: Int,
-    textEditorFocused: Boolean,
-    idleHome: Boolean,
-    inputActive: Boolean,
-): String? {
-    val otherModifiers = KeyEvent.META_SHIFT_MASK or KeyEvent.META_CTRL_MASK or
-        KeyEvent.META_META_MASK or KeyEvent.META_SYM_ON or KeyEvent.META_FUNCTION_ON
-    if (action != KeyEvent.ACTION_DOWN || repeatCount != 0 || textEditorFocused || !idleHome || inputActive ||
-        metaState and KeyEvent.META_ALT_MASK == 0 || metaState and otherModifiers != 0) return null
-    return when (keyCode) {
-        KeyEvent.KEYCODE_N -> "com.example.notes.action.NEW_NOTE"
-        KeyEvent.KEYCODE_T -> "com.example.notes.action.NEW_TODO"
-        KeyEvent.KEYCODE_A -> "com.example.notes.action.APPEND_NOTE"
-        else -> null
-    }
-}
+internal data class SelectedNote(val id: Long, val title: String)
 
-internal fun launchNotesCapture(context: Context, action: String) {
-    val intent = Intent(action).setPackage("com.example.notes").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    try {
-        if (intent.resolveActivity(context.packageManager) != null) {
-            context.startActivity(intent)
-            return
-        }
-    } catch (_: ActivityNotFoundException) {
-        // The target may disappear between resolution and launch.
-    } catch (_: SecurityException) {
-        // Older Notes builds may not expose the capture activity.
+internal object NotesCaptureContract {
+    const val AUTHORITY = "com.example.notes.capture"
+    val URI: Uri = Uri.parse("content://$AUTHORITY")
+
+    suspend fun listNotes(context: Context, query: String?): List<SelectedNote>? = withContext(Dispatchers.IO) {
+        try {
+            val result = context.contentResolver.call(URI, "list_notes", query, Bundle().apply { putInt("limit", 20) })
+            if (result?.getBoolean("ok") != true) return@withContext null
+            val ids = result.getLongArray("ids") ?: return@withContext null
+            val titles = result.getStringArrayList("titles") ?: return@withContext null
+            if (ids.size != titles.size) return@withContext null
+            ids.indices.map { SelectedNote(ids[it], titles[it]) }
+        } catch (_: Throwable) { null }
     }
-    Toast.makeText(context, R.string.notes_capture_unavailable, Toast.LENGTH_SHORT).show()
+
+    suspend fun save(context: Context, text: String, todo: Boolean, noteId: Long?): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val method = if (todo) "insert_task" else if (noteId == null) "create_note" else "append_note"
+            val extras = Bundle().apply {
+                putString("text", text)
+                if (noteId != null) putLong("id", noteId)
+            }
+            context.contentResolver.call(URI, method, null, extras)?.getBoolean("ok") == true
+        } catch (_: Throwable) { false }
+    }
 }

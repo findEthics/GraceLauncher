@@ -1,60 +1,112 @@
 package com.galaxyrio.gracelauncher.platform
 
 import android.view.KeyEvent
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import com.galaxyrio.gracelauncher.magic.MagicController
+import com.galaxyrio.gracelauncher.magic.MagicKind
+import org.junit.Assert.*
 import org.junit.Test
 
 class NotesCaptureTest {
-    private fun capture(
+    private fun MagicController.press(
         keyCode: Int = KeyEvent.KEYCODE_N,
+        character: Char = '\u0000',
+        meta: Int = 0,
+        focused: Boolean = false,
+        repeat: Int = 0,
         action: Int = KeyEvent.ACTION_DOWN,
-        repeatCount: Int = 0,
-        metaState: Int = KeyEvent.META_ALT_ON,
-        textEditorFocused: Boolean = false,
-        idleHome: Boolean = true,
-        inputActive: Boolean = false,
-    ) = notesCaptureAction(keyCode, action, repeatCount, metaState, textEditorFocused, idleHome, inputActive)
+    ) = hardwareKey(keyCode, action, repeat, meta, character.code, focused)
 
-    @Test fun altPhysicalKeysMapToCaptureActions() {
-        assertEquals("com.example.notes.action.NEW_NOTE", capture(KeyEvent.KEYCODE_N))
-        assertEquals("com.example.notes.action.NEW_TODO", capture(KeyEvent.KEYCODE_T))
-        assertEquals("com.example.notes.action.APPEND_NOTE", capture(KeyEvent.KEYCODE_A))
-        assertNull(capture(KeyEvent.KEYCODE_B))
+    @Test fun unicodeAndHardwareAltOpenTheFloatingKinds() {
+        for ((input, expected) in listOf(
+            Triple(KeyEvent.KEYCODE_T, '(', 0) to MagicKind.Todo,
+            Triple(KeyEvent.KEYCODE_N, ',', 0) to MagicKind.Note,
+            Triple(KeyEvent.KEYCODE_T, '\u0000', KeyEvent.META_ALT_ON) to MagicKind.Todo,
+            Triple(KeyEvent.KEYCODE_N, '\u0000', KeyEvent.META_ALT_ON) to MagicKind.Note,
+            Triple(KeyEvent.KEYCODE_A, '\u0000', KeyEvent.META_ALT_ON) to MagicKind.Note,
+        )) {
+            val controller = MagicController().apply { eligible = true }
+            assertTrue(controller.press(input.first, input.second, input.third))
+            assertEquals(expected, controller.session?.kind)
+            assertEquals("", controller.session?.input?.text)
+        }
     }
 
-    @Test fun plainShiftAndControlTypingAreNotShortcuts() {
-        assertNull(capture(metaState = 0))
-        assertNull(capture(metaState = KeyEvent.META_SHIFT_ON))
-        assertNull(capture(metaState = KeyEvent.META_CTRL_ON))
+    @Test fun editorsAndExistingSessionsKeepCaptureCharactersAndChordsAsInput() {
+        for (activeSession in listOf(false, true)) for (focused in listOf(false, true)) {
+            if (!activeSession && !focused) continue
+            for ((key, char, meta) in listOf(
+                Triple(KeyEvent.KEYCODE_T, '(', 0), Triple(KeyEvent.KEYCODE_N, ',', 0),
+                Triple(KeyEvent.KEYCODE_T, '(', KeyEvent.META_ALT_ON),
+                Triple(KeyEvent.KEYCODE_N, ',', KeyEvent.META_ALT_ON),
+                Triple(KeyEvent.KEYCODE_T, '\u0000', KeyEvent.META_ALT_ON),
+                Triple(KeyEvent.KEYCODE_N, '\u0000', KeyEvent.META_ALT_ON),
+            )) {
+                val controller = MagicController().apply { eligible = true; if (activeSession) open(MagicKind.Note) }
+                val session = controller.session
+                assertFalse(controller.press(key, char, meta, focused))
+                assertSame(session, controller.session)
+                assertFalse(controller.press(key, action = KeyEvent.ACTION_UP))
+            }
+        }
     }
 
-    @Test fun altMustBeTheOnlyModifier() {
+    @Test fun captureRequiresIdleHomeAndNoSearchOpening() {
+        val controller = MagicController()
+        assertFalse(controller.press(character = ','))
+        controller.eligible = true
+        controller.searchOpening = true
+        assertFalse(controller.press(meta = KeyEvent.META_ALT_ON))
+        assertNull(controller.session)
+    }
+
+    @Test fun openingRepeatAndReleaseAreOwnedAcrossFocusAndClose() {
+        for ((char, meta) in listOf('(' to 0, '\u0000' to KeyEvent.META_ALT_ON)) {
+            val controller = MagicController().apply { eligible = true }
+            assertTrue(controller.press(KeyEvent.KEYCODE_T, char, meta))
+            val session = controller.session
+            assertTrue(controller.press(KeyEvent.KEYCODE_T, char, meta, focused = true, repeat = 1))
+            assertSame(session, controller.session)
+            controller.close()
+            assertTrue(controller.press(KeyEvent.KEYCODE_T, action = KeyEvent.ACTION_UP))
+            assertFalse(controller.press(KeyEvent.KEYCODE_T, action = KeyEvent.ACTION_UP))
+            assertFalse(controller.press(KeyEvent.KEYCODE_T, char, meta, repeat = 2))
+        }
+    }
+
+    @Test fun hardwareChordsRejectOtherModifiersAndUnownedRepeatsReleases() {
         for (modifier in listOf(KeyEvent.META_SHIFT_ON, KeyEvent.META_SHIFT_LEFT_ON,
             KeyEvent.META_CTRL_ON, KeyEvent.META_CTRL_RIGHT_ON, KeyEvent.META_META_ON,
             KeyEvent.META_META_LEFT_ON, KeyEvent.META_SYM_ON, KeyEvent.META_FUNCTION_ON)) {
-            assertNull(capture(metaState = KeyEvent.META_ALT_ON or modifier))
+            val controller = MagicController().apply { eligible = true }
+            assertFalse(controller.press(KeyEvent.KEYCODE_T, meta = KeyEvent.META_ALT_ON or modifier))
+            assertNull(controller.session)
+        }
+        val controller = MagicController().apply { eligible = true }
+        assertFalse(controller.press(meta = KeyEvent.META_ALT_ON, repeat = 1))
+        assertFalse(controller.press(meta = KeyEvent.META_ALT_ON, action = KeyEvent.ACTION_UP))
+        assertFalse(controller.press(meta = KeyEvent.META_ALT_ON, action = KeyEvent.ACTION_MULTIPLE))
+    }
+
+    @Test fun unicodeCaptureAllowsTitanAltAndSymButNotControlOrMeta() {
+        for (char in listOf('(', ',')) for (meta in listOf(0, KeyEvent.META_ALT_ON,
+            KeyEvent.META_SYM_ON, KeyEvent.META_ALT_ON or KeyEvent.META_SYM_ON)) {
+            val controller = MagicController().apply { eligible = true }
+            assertTrue(controller.press(KeyEvent.KEYCODE_UNKNOWN, char, meta))
+            assertEquals(if (char == '(') MagicKind.Todo else MagicKind.Note, controller.session?.kind)
+        }
+        for (meta in listOf(KeyEvent.META_CTRL_ON, KeyEvent.META_META_ON)) {
+            val controller = MagicController().apply { eligible = true }
+            assertFalse(controller.press(character = '(', meta = meta))
         }
     }
 
     @Test fun eitherAltKeyAndLockStatesAreAccepted() {
         for (alt in listOf(KeyEvent.META_ALT_LEFT_ON, KeyEvent.META_ALT_RIGHT_ON,
-            KeyEvent.META_ALT_ON or KeyEvent.META_ALT_LEFT_ON)) {
-            assertEquals("com.example.notes.action.NEW_NOTE", capture(metaState = alt))
+            KeyEvent.META_ALT_ON or KeyEvent.META_ALT_LEFT_ON,
+            KeyEvent.META_ALT_ON or KeyEvent.META_CAPS_LOCK_ON or KeyEvent.META_NUM_LOCK_ON)) {
+            val controller = MagicController().apply { eligible = true }
+            assertTrue(controller.press(meta = alt))
+            assertEquals(MagicKind.Note, controller.session?.kind)
         }
-        assertEquals("com.example.notes.action.NEW_NOTE",
-            capture(metaState = KeyEvent.META_ALT_ON or KeyEvent.META_CAPS_LOCK_ON or KeyEvent.META_NUM_LOCK_ON))
-    }
-
-    @Test fun repeatsAndReleasesNeverCapture() {
-        assertNull(capture(repeatCount = 1))
-        assertNull(capture(action = KeyEvent.ACTION_UP))
-        assertNull(capture(action = KeyEvent.ACTION_MULTIPLE))
-    }
-
-    @Test fun textFocusAndActiveInputsNeverCapture() {
-        assertNull(capture(textEditorFocused = true))
-        assertNull(capture(inputActive = true))
-        assertNull(capture(idleHome = false))
     }
 }

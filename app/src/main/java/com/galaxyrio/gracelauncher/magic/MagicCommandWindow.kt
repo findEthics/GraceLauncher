@@ -39,12 +39,14 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.galaxyrio.gracelauncher.R
 import com.galaxyrio.gracelauncher.data.*
+import com.galaxyrio.gracelauncher.platform.SelectedNote
 import com.katoaapps.openminilaunch.features.calendar.engine.CalendarPhraseEngine
 import com.katoaapps.openminilaunch.features.calendar.model.*
 import com.katoaapps.openminilaunch.features.messaging.*
@@ -53,6 +55,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import kotlinx.coroutines.launch
 
 private data class MagicRow(val key: String, val label: String, val detail: String, val choose: () -> Unit)
 
@@ -70,13 +73,13 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
     val prefs = remember(context) { MagicPreferences(context) }
     DisposableEffect(prefs) { onDispose { prefs.close() } }
     val contactsSource = remember(context, actions, c.dataSource) { c.dataSource ?: PlatformMagicDataSource(context, actions) }
-    var contactsGranted by remember(contactsSource) { mutableStateOf(contactsSource.hasContactAccess()) }
+    var contactsGranted by remember(contactsSource) { mutableStateOf(s.kind.usesContacts && contactsSource.hasContactAccess()) }
     var resumeVersion by remember { mutableIntStateOf(0) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, contactsSource) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                contactsGranted = contactsSource.hasContactAccess()
+                contactsGranted = s.kind.usesContacts && contactsSource.hasContactAccess()
                 resumeVersion++
                 if (s.handedOff) { s.handedOff = false; s.consumed = false }
             }
@@ -93,7 +96,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
     // Remember state by scope so old rows disappear before a replacement coroutine starts.
     var contacts by remember(contactsSource, contactScope, resumeVersion) { mutableStateOf<List<SearchContact>?>(null) }
     LaunchedEffect(contactsSource, contactScope, resumeVersion) {
-        if (s.kind == MagicKind.Event || !contactsGranted || !providerInstalled) contacts = emptyList()
+        if (!s.kind.usesContacts || !contactsGranted || !providerInstalled) contacts = emptyList()
         else contactsSource.contacts(strictProvider).collect { contacts = it }
     }
     var conversations by remember(contactsSource, contactScope, prefs.automatic, apps, resumeVersion) {
@@ -106,6 +109,16 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
             else emptyList()
     }
     val focus = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
+    var notes by remember(contactsSource, s.input.text, resumeVersion) { mutableStateOf(emptyList<SelectedNote>()) }
+    LaunchedEffect(contactsSource, s.input.text, s.selectedNote, resumeVersion) {
+        if (s.kind == MagicKind.Note && s.selectedNote == null) {
+            val result = contactsSource.notes(s.input.text)
+            notes = result.orEmpty()
+            if (result == null) s.status = resources.getString(R.string.notes_capture_unavailable)
+            else if (s.status == resources.getString(R.string.notes_capture_unavailable)) s.status = ""
+        }
+    }
     val focusManager = LocalFocusManager.current
     val inputModeManager = LocalInputModeManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -220,7 +233,12 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
             MagicRow(conversation.target.selectionKey, conversation.target.label, actions.appLabel(conversation.target.packageName)) { chooseConversation(conversation) }
         } else emptyList()
     val rows = buildList {
-        if (s.kind != MagicKind.Event && s.recipient == null && s.conversation == null) {
+        if (s.kind == MagicKind.Note && s.selectedNote == null) {
+            notes.filter { it.title.contains(s.input.text, ignoreCase = true) }.forEach { note ->
+                add(MagicRow("note:${note.id}", note.title, "") { s.chooseNote(note); focus.requestFocus() })
+            }
+        }
+        if (s.kind.usesContacts && s.recipient == null && s.conversation == null) {
             addAll(conversationRows)
             val query = SearchQuery(s.query, fuzzy = false)
             contacts.orEmpty().filter { s.query.isBlank() || it.score(query) != null }.take(5).forEach { contact ->
@@ -237,8 +255,34 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
         CalendarPhraseEngine.parse(CalendarParseRequest(s.input.text, eventTitle, language))
     }
     fun openCalendar(draft: CalendarDraft) { if (active() && s.claim()) handoff(actions.calendar(draft)) }
+    val selectedIndex = if (s.kind == MagicKind.Note) s.selectedIndex else highlight
     val submit = {
         if (c.session === s && !s.consumed) when {
+            s.kind == MagicKind.Todo || s.kind == MagicKind.Note -> {
+                val selectedRow = if (s.kind == MagicKind.Note && s.selectedNote == null) rows.getOrNull(s.selectedIndex) else null
+                if (selectedRow != null) selectedRow.choose()
+                else if (s.input.text.isNotBlank() && s.claim()) {
+                    val text = s.input.text
+                    val noteId = s.selectedNote?.id
+                    s.status = resources.getString(R.string.magic_saving)
+                    scope.launch {
+                        val saved = contactsSource.saveNoteOrTodo(text, s.kind == MagicKind.Todo, noteId)
+                        if (c.session === s) {
+                            if (saved) {
+                                val message = resources.getString(when {
+                                    s.kind == MagicKind.Todo -> R.string.magic_todo_added
+                                    noteId == null -> R.string.magic_note_added
+                                    else -> R.string.magic_note_updated
+                                })
+                                Toast.makeText(context.applicationContext, message, Toast.LENGTH_SHORT).show()
+                                contactsSource.onCaptureToast(message)
+                                c.close()
+                            }
+                            else { s.consumed = false; s.status = resources.getString(R.string.magic_capture_failed) }
+                        }
+                    }
+                }
+            }
             s.kind == MagicKind.Event -> {
                 if (s.input.text.isNotBlank()) {
                     if (parsed is CalendarParseResult.NeedsReview || parsed is CalendarParseResult.Invalid) calendarReview = parsed.draft
@@ -283,12 +327,16 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
     SideEffect { c.onSubmit = submit }
     LaunchedEffect(contacts, s.input.text) { if (c.submitPending && contacts != null) { c.submitPending = false; submit() } }
     LaunchedEffect(s.query) { highlight = 0 }
-    LaunchedEffect(highlight) { if (rows.isNotEmpty()) list.animateScrollToItem(highlight.coerceIn(0, rows.lastIndex)) }
+    LaunchedEffect(selectedIndex, rows.map { it.key }) { if (selectedIndex in rows.indices) list.animateScrollToItem(selectedIndex) }
     LaunchedEffect(Unit) { focus.requestFocus(); keyboard?.show() }
     BackHandler { c.close() }
     val recipientSearch = s.searchingForRecipient
-    val inputDescription = stringResource(if (s.kind == MagicKind.Event) R.string.magic_event_input
-        else if (s.recipient != null || s.conversation != null) R.string.magic_message else R.string.magic_recipient)
+    val inputDescription = stringResource(when (s.kind) {
+        MagicKind.Todo -> R.string.magic_todo_input
+        MagicKind.Note -> if (s.selectedNote == null) R.string.magic_note_input else R.string.magic_note_append
+        MagicKind.Event -> R.string.magic_event_input
+        else -> if (s.recipient != null || s.conversation != null) R.string.magic_message else R.string.magic_recipient
+    })
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = .45f)).testTag("magic_window")
         .onPreviewKeyEvent { event ->
@@ -303,28 +351,35 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                 true
             }
         }) {
-        Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(horizontal = 18.dp)) {
+        // Keep a result row and the action visible above a tall IME; multiline drafts still scroll.
+        val editorLines = if (maxHeight < 240.dp) 1 else 5
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("magic_results"), state = list,
                 verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.Bottom)) {
                 itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
-                    Surface(shape = RoundedCornerShape(20.dp), color = if (index == highlight) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-                        modifier = Modifier.fillMaxWidth().semantics { selected = index == highlight }) {
-                        TextButton(onClick = row.choose, modifier = Modifier.fillMaxWidth().testTag("magic_result:$index")) {
-                            Column(Modifier.fillMaxWidth().padding(8.dp)) { Text(row.label); Text(row.detail, style = MaterialTheme.typography.bodySmall) }
+                    Surface(shape = RoundedCornerShape(20.dp), color = if (index == selectedIndex) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                        modifier = Modifier.fillMaxWidth().semantics { selected = index == selectedIndex }) {
+                        TextButton(onClick = row.choose, enabled = !s.consumed, modifier = Modifier.fillMaxWidth().testTag("magic_result:$index")) {
+                            Column(Modifier.fillMaxWidth()) { Text(row.label); if (row.detail.isNotBlank()) Text(row.detail, style = MaterialTheme.typography.bodySmall) }
                         }
                     }
                 }
             }
             Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainer,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(s.recipient?.displayName ?: s.conversation?.target?.label ?: stringResource(when(s.kind) {
-                            MagicKind.Message -> R.string.magic_message; MagicKind.Call -> R.string.magic_call; MagicKind.Event -> R.string.magic_event
-                        }), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                Column(Modifier.padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (s.selectedNote != null || s.recipient != null || s.conversation != null) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text((s.selectedNote?.title ?: s.recipient?.displayName ?: s.conversation?.target?.label).orEmpty(),
+                                Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (s.selectedNote != null) TextButton(onClick = { s.chooseNote(null); focus.requestFocus() }, enabled = !s.consumed) {
+                                Text(stringResource(R.string.magic_clear))
+                            }
+                        }
                     }
                     s.recipient?.let { Text(it.address, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("magic_recipient_number")) }
-                    if (s.kind != MagicKind.Event && !contactsGranted && s.recipient == null && s.conversation == null)
+                    if (s.kind.usesContacts && !contactsGranted && s.recipient == null && s.conversation == null)
                         TextButton(onClick = { if (contactsSource.externalActionsAllowed) contactPermission.launch(Manifest.permission.READ_CONTACTS) }) { Text(stringResource(R.string.magic_grant_contacts)) }
                     if (s.kind == MagicKind.Event && s.input.text.isNotBlank()) {
                         Text(parsed.draft.title, style = MaterialTheme.typography.bodyMedium)
@@ -346,26 +401,38 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                                     when (event.key) {
                                         Key.Escape -> { if (event.type == KeyEventType.KeyDown) c.close(); true }
                                         Key.DirectionDown, Key.DirectionUp -> if (rows.isEmpty()) false else {
-                                            if (event.type == KeyEventType.KeyDown) highlight = (highlight + if (event.key == Key.DirectionDown) 1 else -1).coerceIn(0, rows.lastIndex)
+                                             if (event.type == KeyEventType.KeyDown) {
+                                                 val next = (selectedIndex + if (event.key == Key.DirectionDown) 1 else -1).coerceIn(0, rows.lastIndex)
+                                                 if (s.kind == MagicKind.Note) s.selectedIndex = next else highlight = next
+                                             }
                                             true
                                         }
                                         Key.Enter, Key.NumPadEnter -> {
                                             if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
-                                                if (event.isShiftPressed && s.kind != MagicKind.Call) s.append("\n") else submit()
+                                                 if (event.isShiftPressed && s.kind != MagicKind.Call) { if (!s.consumed) s.append("\n") } else submit()
                                             }
                                             true
                                         }
                                         else -> false
                                     }
-                                }, shape = RoundedCornerShape(28.dp), maxLines = 5,
-                            prefix = { Text(s.kind.prefix.toString()) },
-                            keyboardOptions = magicKeyboardOptions(recipientSearch), keyboardActions = KeyboardActions(onSend = { submit() }))
-                    }
-                    Button(onClick = submit, enabled = !s.consumed && s.input.text.isNotBlank(), modifier = Modifier.align(Alignment.End).testTag("magic_submit")) {
-                        Text(stringResource(if (s.recipient == null && s.conversation == null && s.kind != MagicKind.Event) R.string.magic_select else R.string.magic_continue))
+                                }, shape = RoundedCornerShape(28.dp), maxLines = editorLines,
+                             prefix = { Text(s.kind.prefix.toString()) },
+                             placeholder = if (s.kind == MagicKind.Todo || s.kind == MagicKind.Note) ({ Text(inputDescription, maxLines = 1, overflow = TextOverflow.Ellipsis) }) else null,
+                             trailingIcon = {
+                                 TextButton(onClick = submit, enabled = !s.consumed && (s.input.text.isNotBlank() || (s.kind == MagicKind.Note && selectedIndex in rows.indices)), modifier = Modifier.testTag("magic_submit")) {
+                                     Text(stringResource(when {
+                                         s.kind == MagicKind.Todo -> R.string.magic_save
+                                         s.kind == MagicKind.Note -> if (s.selectedNote == null && selectedIndex in rows.indices) R.string.magic_select else R.string.magic_save
+                                         s.searchingForRecipient -> R.string.magic_select
+                                         else -> R.string.magic_continue
+                                     }), maxLines = 1)
+                                 }
+                             },
+                             keyboardOptions = magicKeyboardOptions(recipientSearch), keyboardActions = KeyboardActions(onSend = { submit() }))
                     }
                 }
             }
+        }
         }
     }
     if (providerPicker) MagicProviderDialog(actions, onDismiss = { providerPicker = false }, onChoose = { openProvider(it.preferencePackageName) })

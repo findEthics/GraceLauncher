@@ -1,6 +1,7 @@
 package com.galaxyrio.gracelauncher.magic
 
 import androidx.compose.ui.text.input.TextFieldValue
+import com.galaxyrio.gracelauncher.platform.SelectedNote
 import com.katoaapps.openminilaunch.features.messaging.MessagingSendRoute
 import com.katoaapps.openminilaunch.features.messaging.resolvedMessageSendRoute
 import com.katoaapps.openminilaunch.model.userEnteredRecipient
@@ -13,6 +14,53 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MagicStateTest {
+    @Test fun noteSelectionStartsUnhighlightedAndTypingAlwaysClearsHighlight() {
+        val session = MagicSession(1, MagicKind.Note)
+        assertEquals(-1, session.selectedIndex)
+        assertNull(session.selectedNote)
+        session.selectedIndex = 2
+        session.input = TextFieldValue("new note")
+        assertEquals(-1, session.selectedIndex)
+        session.selectedIndex = 1
+        session.input = session.input.copy(selection = androidx.compose.ui.text.TextRange(0))
+        assertEquals(1, session.selectedIndex)
+        session.append("changed ")
+        assertEquals(-1, session.selectedIndex)
+    }
+
+    @Test fun choosingNoteClearsFilterLocksTargetAndSupportsClearing() {
+        val session = MagicSession(1, MagicKind.Note)
+        val target = SelectedNote(42, "Existing note")
+        session.input = TextFieldValue("filter")
+        session.selectedIndex = 0
+        session.chooseNote(target)
+        assertEquals(target, session.selectedNote)
+        assertEquals("", session.input.text)
+        assertEquals(-1, session.selectedIndex)
+        session.append("append this\nsecond line")
+        assertEquals(target, session.selectedNote)
+        assertEquals("append this\nsecond line", session.input.text)
+        assertTrue(session.claim())
+        assertFalse(session.claim())
+        session.chooseNote(null)
+        assertEquals(target, session.selectedNote)
+        session.consumed = false
+        session.chooseNote(null)
+        assertNull(session.selectedNote)
+        assertEquals("", session.input.text)
+    }
+
+    @Test fun captureSessionsIgnoreContactScopeChanges() {
+        for (kind in listOf(MagicKind.Todo, MagicKind.Note)) {
+            val session = MagicSession(1, kind)
+            session.input = TextFieldValue("keep draft")
+            session.updateContactScope(MagicContactScope(null, false, true))
+            assertFalse(session.updateContactScope(MagicContactScope("provider", true, false)))
+            assertEquals("keep draft", session.input.text)
+            assertFalse(kind.usesContacts)
+        }
+    }
+
     private val recipient = CommunicationRecipient("+15551234567", "Alex", "+15551234567")
 
     private fun message(inferred: Boolean) = MagicSession(1, MagicKind.Message).apply {

@@ -13,6 +13,11 @@ class MagicEditorInputTest {
         assertTrue(MagicSession(1, MagicKind.Message).searchingForRecipient)
         assertTrue(MagicSession(2, MagicKind.Call).searchingForRecipient)
         assertFalse(MagicSession(3, MagicKind.Event).searchingForRecipient)
+        for (kind in listOf(MagicKind.Todo, MagicKind.Note)) {
+            val capture = MagicSession(4, kind)
+            assertFalse(capture.searchingForRecipient)
+            assertEquals(KeyboardOptions(imeAction = ImeAction.Send), magicKeyboardOptions(capture.searchingForRecipient))
+        }
     }
 
     @Test fun selectingRecipientRestoresBodyOptionsAndFreshSessionRestoresExclusion() {

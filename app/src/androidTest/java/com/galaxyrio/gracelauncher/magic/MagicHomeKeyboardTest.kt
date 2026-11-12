@@ -152,13 +152,18 @@ class MagicHomeKeyboardTest {
         for (prefix in listOf("", "A", "Al", "Alex")) {
             compose.onNodeWithTag("magic_input").performTextClearance()
             if (prefix.isNotEmpty()) compose.onNodeWithTag("magic_input").performTextInput(prefix)
+            compose.onNodeWithTag("magic_results").performScrollToIndex(0)
             compose.onNodeWithTag("magic_result:0").assertTextContains("Alex preferred")
             val zebraMatches = "Zebra".contains(prefix, ignoreCase = true)
             val otherIndex = if (zebraMatches) 2 else 1
-            if (zebraMatches) compose.onNodeWithTag("magic_result:1").assertTextContains("Zebra")
-            compose.onNodeWithTag("magic_result:$otherIndex").assertTextContains("Alex other")
-            compose.onNodeWithTag("magic_result:${otherIndex + 1}").assertTextContains("15550001")
-            compose.onNodeWithTag("magic_result:${otherIndex + 2}").assertTextContains("15550002")
+            if (zebraMatches) {
+                compose.onNodeWithTag("magic_results").performScrollToIndex(1)
+                compose.onNodeWithTag("magic_result:1").assertTextContains("Zebra")
+            }
+            for ((index, text) in listOf(otherIndex to "Alex other", otherIndex + 1 to "15550001", otherIndex + 2 to "15550002")) {
+                compose.onNodeWithTag("magic_results").performScrollToIndex(index)
+                compose.onNodeWithTag("magic_result:$index").assertTextContains(text)
+            }
             if (!zebraMatches) compose.onNodeWithText("Zebra").assertDoesNotExist()
         }
     }
@@ -407,6 +412,170 @@ class MagicHomeKeyboardTest {
                 magic.close()
             }
             compose.waitUntil(10_000) { magic.session == null && magic.eligible }
+        }
+    }
+
+    @Test fun parenthesisAndAltTOpenTodoWindowAndPrefixesRemainLiteralInput() {
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        for ((keyCode, modifiers) in listOf(
+            KeyEvent.KEYCODE_9 to KeyEvent.META_SHIFT_ON,
+            KeyEvent.KEYCODE_T to KeyEvent.META_ALT_ON,
+        )) {
+            compose.runOnUiThread {
+                val opener = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, keyCode, 0, modifiers)
+                assertTrue(compose.activity.dispatchKeyEvent(opener))
+                assertTrue(compose.activity.dispatchKeyEvent(KeyEvent.changeAction(opener, KeyEvent.ACTION_UP)))
+                assertEquals(MagicKind.Todo, magic.session?.kind)
+                assertEquals("", magic.session?.input?.text)
+            }
+            compose.onNodeWithTag("magic_window").assertIsDisplayed()
+            compose.onNodeWithTag("magic_input").assertIsFocused()
+            val opened = checkNotNull(magic.session)
+            for ((literalKey, literalModifiers) in listOf(
+                KeyEvent.KEYCODE_COMMA to 0,
+                KeyEvent.KEYCODE_9 to KeyEvent.META_SHIFT_ON,
+            )) {
+                val time = android.os.SystemClock.uptimeMillis()
+                val literal = KeyEvent(time, time, KeyEvent.ACTION_DOWN, literalKey, 0, literalModifiers)
+                instrumentation.sendKeySync(literal)
+                instrumentation.sendKeySync(KeyEvent.changeAction(literal, KeyEvent.ACTION_UP))
+            }
+            compose.onNodeWithTag("magic_input").assertTextContains(",(").assertIsFocused()
+            compose.runOnUiThread {
+                assertSame(opened, magic.session)
+                assertEquals(",(", opened.input.text)
+                assertTrue(compose.activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+                assertFalse(compose.activity.isFinishing)
+                assertFalse(assistant.chat.visible)
+            }
+            compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Escape) }
+            compose.onNodeWithTag("magic_window").assertDoesNotExist()
+            compose.waitUntil(10_000) { magic.session == null && magic.eligible }
+        }
+    }
+
+    @Test fun commaAndAltNOpenUnselectedNoteWindowAndEscapeOrBackReturnsHome() {
+        synthetic.noteSnapshot = listOf(com.galaxyrio.gracelauncher.platform.SelectedNote(1, "Packing list"))
+        for ((keyCode, modifiers) in listOf(
+            KeyEvent.KEYCODE_COMMA to 0,
+            KeyEvent.KEYCODE_N to KeyEvent.META_ALT_ON,
+        )) {
+            for (escape in listOf(true, false)) {
+                compose.runOnUiThread {
+                    val opener = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, keyCode, 0, modifiers)
+                    assertTrue(compose.activity.dispatchKeyEvent(opener))
+                    assertTrue(compose.activity.dispatchKeyEvent(KeyEvent.changeAction(opener, KeyEvent.ACTION_UP)))
+                    assertEquals(MagicKind.Note, magic.session?.kind)
+                    assertEquals("", magic.session?.input?.text)
+                }
+                compose.onNodeWithTag("magic_window").assertIsDisplayed()
+                compose.onNodeWithTag("magic_input").assertIsFocused()
+                compose.onNodeWithText("Packing list").assertIsDisplayed()
+                compose.onAllNodes(isSelected() and hasAnyAncestor(hasTestTag("magic_results"))).assertCountEquals(0)
+                compose.runOnUiThread {
+                    assertEquals(-1, magic.session?.selectedIndex)
+                    assertNull(magic.session?.selectedNote)
+                    assertTrue(compose.activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+                    assertFalse(assistant.chat.visible)
+                }
+                compose.onNodeWithTag("magic_input").performTextInput("discard this note draft")
+                if (escape) compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Escape) }
+                else compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+                compose.waitUntil(10_000) { magic.session == null && magic.eligible }
+                compose.onNodeWithTag("magic_window").assertDoesNotExist()
+                compose.runOnUiThread {
+                    assertNull(magic.onSubmit)
+                    assertFalse(magic.submitPending)
+                    assertFalse(compose.activity.isFinishing)
+                    assertTrue(compose.activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+                }
+            }
+        }
+    }
+
+    @Test fun noteOptionsLoadWithoutAQueryFilterWithoutSelectingAndKeepSaveInsideTheEditor() {
+        synthetic.noteSnapshot = listOf(
+            com.galaxyrio.gracelauncher.platform.SelectedNote(2, "Groceries"),
+            com.galaxyrio.gracelauncher.platform.SelectedNote(1, "Packing list"),
+        )
+        compose.runOnUiThread { magic.open(MagicKind.Note) }
+        compose.waitUntil(5_000) { synthetic.noteQueries.contains("") }
+        compose.onNodeWithText("Packing list").assertIsDisplayed()
+        compose.onAllNodes(isSelected() and hasAnyAncestor(hasTestTag("magic_results"))).assertCountEquals(0)
+        compose.onNodeWithTag("magic_submit").assertIsDisplayed()
+        compose.onNodeWithTag("magic_input").performTextInput("pAcKiNg")
+        compose.waitUntil(5_000) { synthetic.noteQueries.contains("pAcKiNg") }
+        compose.onNodeWithText("Packing list").assertIsDisplayed()
+        compose.onNodeWithText("Groceries").assertDoesNotExist()
+        compose.runOnUiThread { assertEquals(-1, magic.session!!.selectedIndex) }
+        compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.DirectionDown); pressKey(Key.Enter) }
+        compose.runOnUiThread { assertEquals(1L, magic.session!!.selectedNote?.id); assertEquals("", magic.session!!.input.text) }
+        compose.onNodeWithText("Packing list").assertIsDisplayed()
+        val input = compose.onNodeWithTag("magic_input").fetchSemanticsNode().boundsInRoot
+        val save = compose.onNodeWithTag("magic_submit").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue("Save must fit inside the editor", save.left >= input.left && save.right <= input.right && save.top >= input.top && save.bottom <= input.bottom)
+        compose.onNodeWithText(compose.activity.getString(com.galaxyrio.gracelauncher.R.string.magic_clear)).performClick()
+        compose.onNodeWithText("Packing list").assertIsDisplayed()
+        compose.runOnUiThread { assertNull(magic.session!!.selectedNote); assertEquals(-1, magic.session!!.selectedIndex) }
+    }
+
+    @Test fun submittingTodoSavesShowsAddedToastAndClosesWindow() {
+        compose.runOnUiThread { magic.open(MagicKind.Todo) }
+        compose.onNodeWithTag("magic_input").performTextInput("Buy milk")
+        compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Enter) }
+        compose.waitUntil(5_000) { magic.session == null }
+        compose.onNodeWithTag("magic_window").assertDoesNotExist()
+        compose.runOnUiThread {
+            assertEquals(listOf(Triple("Buy milk", true, null)), synthetic.saves)
+            assertEquals(listOf("To-do added"), synthetic.toasts)
+        }
+    }
+
+    @Test fun submittingUnselectedNoteSavesNewNoteShowsAddedToastAndClosesWindow() {
+        synthetic.noteSnapshot = listOf(com.galaxyrio.gracelauncher.platform.SelectedNote(1, "Packing list"))
+        compose.runOnUiThread { magic.open(MagicKind.Note) }
+        compose.onNodeWithTag("magic_input").performTextInput("Packing")
+        compose.onNodeWithText("Packing list").assertIsDisplayed()
+        compose.runOnUiThread { assertEquals(-1, magic.session!!.selectedIndex); assertNull(magic.session!!.selectedNote) }
+        compose.onNodeWithTag("magic_submit").performClick()
+        compose.waitUntil(5_000) { magic.session == null }
+        compose.onNodeWithTag("magic_window").assertDoesNotExist()
+        compose.runOnUiThread {
+            assertEquals(listOf(Triple("Packing", false, null)), synthetic.saves)
+            assertEquals(listOf("Note added"), synthetic.toasts)
+        }
+    }
+
+    @Test fun submittingSelectedNoteSavesToItsIdShowsUpdatedToastAndClosesWindow() {
+        synthetic.noteSnapshot = listOf(com.galaxyrio.gracelauncher.platform.SelectedNote(7, "Packing list"))
+        compose.runOnUiThread { magic.open(MagicKind.Note) }
+        compose.onNodeWithTag("magic_result:0").performClick()
+        compose.runOnUiThread { assertEquals(7L, magic.session!!.selectedNote?.id) }
+        compose.onNodeWithTag("magic_input").performTextInput("Add sunscreen")
+        compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Enter) }
+        compose.waitUntil(5_000) { magic.session == null }
+        compose.onNodeWithTag("magic_window").assertDoesNotExist()
+        compose.runOnUiThread {
+            assertEquals(listOf(Triple("Add sunscreen", false, 7L)), synthetic.saves)
+            assertEquals(listOf("Note updated"), synthetic.toasts)
+        }
+    }
+
+    @Test fun failedCaptureShowsErrorKeepsDraftOpenAndDoesNotToast() {
+        synthetic.saveResult = false
+        compose.runOnUiThread { magic.open(MagicKind.Todo) }
+        compose.onNodeWithTag("magic_input").performTextInput("Keep this draft")
+        compose.onNodeWithTag("magic_submit").performClick()
+        val error = compose.activity.getString(com.galaxyrio.gracelauncher.R.string.magic_capture_failed)
+        compose.waitUntil(5_000) { magic.session?.status == error }
+        compose.onNodeWithTag("magic_window").assertIsDisplayed()
+        compose.onNodeWithTag("magic_status").assertTextEquals(error)
+        compose.onNodeWithTag("magic_input").assertTextContains("Keep this draft")
+        compose.onNodeWithTag("magic_submit").assertIsEnabled()
+        compose.runOnUiThread {
+            assertEquals(listOf(Triple("Keep this draft", true, null)), synthetic.saves)
+            assertTrue(synthetic.toasts.isEmpty())
+            assertFalse(magic.session!!.consumed)
         }
     }
 

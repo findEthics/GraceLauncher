@@ -11,7 +11,7 @@ import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.text.input.ImeAction
 
 internal val MagicSession.searchingForRecipient: Boolean
-    get() = kind != MagicKind.Event && recipient == null && conversation == null
+    get() = kind.usesContacts && recipient == null && conversation == null
 
 internal fun magicKeyboardOptions(recipientSearch: Boolean) = KeyboardOptions(
     autoCorrectEnabled = if (recipientSearch) false else null,

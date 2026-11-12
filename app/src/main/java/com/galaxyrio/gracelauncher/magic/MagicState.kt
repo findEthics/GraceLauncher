@@ -6,10 +6,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import com.galaxyrio.gracelauncher.platform.SelectedNote
 import com.katoaapps.openminilaunch.model.CommunicationRecipient
 import com.katoaapps.openminilaunch.features.messaging.MessageDraft
 
-internal enum class MagicKind(val prefix: Char) { Message('@'), Call('#'), Event('+') }
+internal enum class MagicKind(val prefix: Char) {
+    Message('@'), Call('#'), Event('+'), Todo('('), Note(',');
+    val usesContacts get() = this == Message || this == Call
+}
 
 internal class MagicSmsRequest(val draft: MessageDraft, val inferred: Boolean) {
     var confirmed = !inferred; internal set
@@ -21,13 +25,18 @@ internal class MagicSession(val id: Long, val kind: MagicKind) {
     var input: TextFieldValue
         get() = inputValue
         set(value) {
-            if (value.text != inputValue.text) cancelSms()
+            if (value.text != inputValue.text) {
+                cancelSms()
+                if (kind == MagicKind.Note) selectedIndex = -1
+            }
             inputValue = value
         }
     var recipient by mutableStateOf<CommunicationRecipient?>(null)
     var recipientInferred = false; private set
     private var smsRequest: MagicSmsRequest? = null
     var conversation by mutableStateOf<MagicConversation?>(null)
+    var selectedNote by mutableStateOf<SelectedNote?>(null); private set
+    var selectedIndex by mutableStateOf(-1)
     var providerPackage: String? = null
     var consumed by mutableStateOf(false)
     var handedOff = false
@@ -36,7 +45,7 @@ internal class MagicSession(val id: Long, val kind: MagicKind) {
     val body get() = input.text.substringAfter(' ', "").trimStart()
     private var contactScope: MagicContactScope? = null
     fun updateContactScope(scope: MagicContactScope): Boolean {
-        val changed = kind != MagicKind.Event && contactScope != null && contactScope != scope
+        val changed = kind.usesContacts && contactScope != null && contactScope != scope
         if (changed) {
             cancelSms()
             recipient = null
@@ -61,6 +70,13 @@ internal class MagicSession(val id: Long, val kind: MagicKind) {
         recipientInferred = inferred
         providerPackage = packageName
         input = TextFieldValue(message, TextRange(message.length))
+    }
+    fun chooseNote(value: SelectedNote?) {
+        if (consumed) return
+        selectedNote = value
+        selectedIndex = -1
+        input = TextFieldValue()
+        status = ""
     }
     fun requestSms(): MagicSmsRequest? {
         val selected = recipient ?: return null
@@ -113,37 +129,57 @@ internal class MagicController {
     }
     fun focused() { composerEverFocused = true; searchOpening = false }
 
-    fun hardwareKey(event: KeyEvent, textEditorFocused: Boolean): Boolean {
+    fun hardwareKey(event: KeyEvent, textEditorFocused: Boolean): Boolean =
+        if (event.isCanceled && event.action == KeyEvent.ACTION_DOWN) false else hardwareKey(event.keyCode, event.action, event.repeatCount,
+            event.metaState, event.unicodeChar, textEditorFocused)
+
+    internal fun hardwareKey(keyCode: Int, action: Int, repeatCount: Int, metaState: Int,
+        character: Int, textEditorFocused: Boolean): Boolean {
         // Key ownership outlives composer/search focus and disposal until the matching release.
-        if (event.action == KeyEvent.ACTION_UP) {
-            return keys.release(event.keyCode)
+        if (action == KeyEvent.ACTION_UP) {
+            return keys.release(keyCode)
         }
-        if (event.action != KeyEvent.ACTION_DOWN) return false
-        if (keys.openingRepeat(event.keyCode, event.repeatCount)) return true
-        return keyDown(event, textEditorFocused).also { if (it) keys.consume(event.keyCode) }
+        if (action != KeyEvent.ACTION_DOWN) return false
+        if (keys.openingRepeat(keyCode, repeatCount)) return true
+        return keyDown(keyCode, repeatCount, metaState, character, textEditorFocused).also { if (it) keys.consume(keyCode) }
     }
 
-    private fun keyDown(event: KeyEvent, textEditorFocused: Boolean): Boolean {
-        if (event.keyCode == KeyEvent.KEYCODE_ESCAPE && session != null) { close(); return true }
-        val character = event.unicodeChar
-        if (session == null && eligible && !textEditorFocused && !event.isCtrlPressed && !event.isMetaPressed &&
-            event.repeatCount == 0 && character in "@#+?".map(Char::code)) {
-            keys.openingKey = event.keyCode
-            if (character == '?'.code) { searchOpening = true; onOpenSearch?.invoke() }
-            else open(MagicKind.entries.first { it.prefix.code == character })
-            return true
+    private fun keyDown(keyCode: Int, repeatCount: Int, metaState: Int, character: Int, textEditorFocused: Boolean): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_ESCAPE && session != null) { close(); return true }
+        val ctrlOrMeta = metaState and (KeyEvent.META_CTRL_MASK or KeyEvent.META_META_MASK) != 0
+        val otherModifiers = KeyEvent.META_SHIFT_MASK or KeyEvent.META_CTRL_MASK or KeyEvent.META_META_MASK or
+            KeyEvent.META_SYM_ON or KeyEvent.META_FUNCTION_ON
+        val altOnly = metaState and KeyEvent.META_ALT_MASK != 0 && metaState and otherModifiers == 0
+        val captureKind = if (!altOnly) null else when (keyCode) {
+            KeyEvent.KEYCODE_T -> MagicKind.Todo
+            KeyEvent.KEYCODE_N, KeyEvent.KEYCODE_A -> MagicKind.Note
+            else -> null
         }
-        if (event.isCtrlPressed || event.isMetaPressed) return false
+        if (session == null && eligible && !textEditorFocused && !searchOpening && !ctrlOrMeta && repeatCount == 0) {
+            if (captureKind != null) {
+                keys.openingKey = keyCode
+                open(captureKind)
+                return true
+            }
+            if (character in "@#+?(,".map(Char::code)) {
+                keys.openingKey = keyCode
+                if (character == '?'.code) { searchOpening = true; onOpenSearch?.invoke() }
+                else open(MagicKind.entries.first { it.prefix.code == character })
+                return true
+            }
+        }
+        if (ctrlOrMeta) return false
         if (searchOpening) {
             if (textEditorFocused) searchOpening = false
             else if (printable(character)) { onSearchText?.invoke(String(Character.toChars(character))); return true }
         }
         val current = session ?: return false
+        if (textEditorFocused || character == '('.code || character == ','.code || captureKind != null) return false
         // Compose can take a frame to focus after the opening key.
         if (!composerEverFocused) {
-            if (event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
-                if (event.repeatCount == 0) {
-                    if (event.isShiftPressed) current.append("\n")
+            if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+                if (repeatCount == 0) {
+                    if (metaState and KeyEvent.META_SHIFT_MASK != 0) current.append("\n")
                     else onSubmit?.invoke() ?: run { submitPending = true }
                 }
                 return true

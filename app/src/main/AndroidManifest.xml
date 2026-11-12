@@ -30,6 +30,7 @@
 
     <queries>
         <package android:name="com.example.notes" />
+        <provider android:authorities="com.example.notes.capture" />
         <package android:name="org.breezyweather" />
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />
