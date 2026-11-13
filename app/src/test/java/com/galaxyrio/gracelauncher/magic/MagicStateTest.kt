@@ -15,7 +15,7 @@ import org.junit.Test
 
 class MagicStateTest {
     @Test fun displayPrefixesKeepTriggerCharactersSeparate() {
-        assertEquals(listOf("@", "📞", "📅", "☑", "📝", "⏰"), MagicKind.entries.map { it.displayPrefix })
+        assertEquals(listOf("@", "📞", "📅", "✅", "📝", "⏰"), MagicKind.entries.map { it.displayPrefix })
         assertEquals(listOf('@', '#', '+', '(', ',', '!'), MagicKind.entries.map { it.prefix })
     }
 
@@ -28,6 +28,68 @@ class MagicStateTest {
         }
     }
 
+    @Test fun singleTabInsertionAcceptsOnlyOneInsertedTab() {
+        for ((previous, updated) in listOf("" to "\t", "text" to "text\t", "text" to "te\txt", "text" to "\ttext", "a\tb" to "a\t\tb")) {
+            assertTrue(isSingleTabInsertion(previous, updated))
+        }
+        for ((previous, updated) in listOf("text" to "text", "text" to "textx", "text" to "text\n", "text" to "text\t\t", "text" to "te\txy", "text" to "te\tt", "text" to "tex")) {
+            assertFalse(isSingleTabInsertion(previous, updated))
+        }
+    }
+
+    @Test fun savedPillSurvivesCloseAndOnlyItsCurrentRevisionCanClearIt() {
+        val controller = MagicController()
+        controller.open(MagicKind.Todo)
+        controller.showSavedPill("To-do added")
+        val firstRevision = controller.pillRevision
+        controller.close()
+        assertNull(controller.session)
+        assertEquals("To-do added", controller.pillMessage)
+        controller.open(MagicKind.Note)
+        controller.showSavedPill("Note added")
+        assertEquals(firstRevision + 1, controller.pillRevision)
+        controller.clearSavedPill(firstRevision)
+        assertEquals("Note added", controller.pillMessage)
+        val revision = controller.pillRevision
+        controller.showSavedPill("Note added")
+        assertEquals(revision + 1, controller.pillRevision)
+        controller.clearSavedPill(revision)
+        assertEquals("Note added", controller.pillMessage)
+        controller.clearSavedPill(controller.pillRevision)
+        assertNull(controller.pillMessage)
+    }
+
+    @Test fun preFocusTabBuffersDirectionsIgnoresRepeatsAndOwnsRelease() {
+        for (kind in listOf(MagicKind.Note, MagicKind.Message, MagicKind.Call)) {
+            val controller = MagicController()
+            controller.open(kind)
+            fun tab(repeat: Int = 0, meta: Int = 0) = controller.hardwareKey(android.view.KeyEvent.KEYCODE_TAB,
+                android.view.KeyEvent.ACTION_DOWN, repeat, meta, '\t'.code, false)
+            assertTrue(tab())
+            assertEquals(1, controller.pendingCycle)
+            assertTrue(tab(repeat = 1))
+            assertEquals(1, controller.pendingCycle)
+            assertTrue(controller.hardwareKey(android.view.KeyEvent.KEYCODE_TAB, android.view.KeyEvent.ACTION_UP, 0, 0, 0, true))
+            assertTrue(tab(meta = android.view.KeyEvent.META_SHIFT_ON))
+            assertEquals(0, controller.pendingCycle)
+            assertTrue(tab(meta = android.view.KeyEvent.META_SHIFT_ON))
+            assertEquals(-1, controller.pendingCycle)
+            controller.open(kind)
+            assertEquals(0, controller.pendingCycle)
+            val directions = mutableListOf<Boolean>()
+            controller.onCycle = { directions.add(it) }
+            assertTrue(tab())
+            assertTrue(tab(meta = android.view.KeyEvent.META_SHIFT_ON))
+            assertEquals(listOf(false, true), directions)
+            controller.focused()
+            assertFalse(tab())
+            controller.pendingCycle = 2
+            controller.close()
+            assertNull(controller.onCycle)
+            assertEquals(0, controller.pendingCycle)
+        }
+    }
+
     @Test fun titanAltIProducedMinusOpensTodoAndOwnsRepeatAndRelease() {
         val controller = MagicController().apply { eligible = true }
         assertTrue(controller.hardwareKey(android.view.KeyEvent.KEYCODE_I, 0, 0, android.view.KeyEvent.META_ALT_ON, '-'.code, false))
@@ -35,6 +97,52 @@ class MagicStateTest {
         assertTrue(controller.hardwareKey(android.view.KeyEvent.KEYCODE_I, 0, 1, android.view.KeyEvent.META_ALT_ON, '-'.code, true))
         assertEquals("", controller.session!!.input.text)
         assertTrue(controller.hardwareKey(android.view.KeyEvent.KEYCODE_I, 1, 0, android.view.KeyEvent.META_ALT_ON, '-'.code, true))
+    }
+
+    @Test fun reopeningBuffersTabButLeavesTextAndEnterToFocusedEditor() {
+        for (kind in listOf(MagicKind.Note, MagicKind.Message, MagicKind.Call)) {
+            val controller = MagicController()
+            controller.open(kind)
+            controller.focused()
+            controller.onSubmit = { error("Old submit callback") }
+            controller.onCycle = { error("Old cycle callback") }
+            controller.pendingCycle = 2
+            controller.submitPending = true
+            controller.open(kind)
+            assertNull(controller.onSubmit)
+            assertNull(controller.onCycle)
+            assertEquals(0, controller.pendingCycle)
+            assertFalse(controller.submitPending)
+            assertTrue(controller.hardwareKey(android.view.KeyEvent.KEYCODE_TAB, 0, 0,
+                android.view.KeyEvent.META_SHIFT_ON, '\t'.code, true))
+            assertEquals(-1, controller.pendingCycle)
+            assertFalse(controller.hardwareKey(android.view.KeyEvent.KEYCODE_ENTER, 0, 0, 0, '\n'.code, true))
+            assertFalse(controller.submitPending)
+            assertFalse(controller.hardwareKey(android.view.KeyEvent.KEYCODE_W, 0, 0, 0, 'w'.code, true))
+            assertEquals("", controller.session!!.input.text)
+            controller.focused()
+            assertFalse(controller.hardwareKey(android.view.KeyEvent.KEYCODE_TAB, 0, 0, 0, '\t'.code, true))
+            assertFalse(controller.hardwareKey(android.view.KeyEvent.KEYCODE_W, 0, 0, 0, 'w'.code, true))
+        }
+    }
+
+    @Test fun literalPrefixesAreNotBufferedBeforeComposerFocus() {
+        val controller = MagicController()
+        controller.open(MagicKind.Todo)
+        for (editorFocused in listOf(false, true)) {
+            for ((key, meta, character) in listOf(
+                Triple(android.view.KeyEvent.KEYCODE_MINUS, 0, '-'),
+                Triple(android.view.KeyEvent.KEYCODE_COMMA, 0, ','),
+                Triple(android.view.KeyEvent.KEYCODE_9, android.view.KeyEvent.META_SHIFT_ON, '('),
+            )) {
+                assertFalse(controller.hardwareKey(key, 0, 0, meta, character.code, editorFocused))
+            }
+        }
+        assertEquals("", controller.session!!.input.text)
+        assertTrue(controller.hardwareKey(android.view.KeyEvent.KEYCODE_W, 0, 0, 0, 'w'.code, false))
+        assertEquals("w", controller.session!!.input.text)
+        assertTrue(controller.hardwareKey(android.view.KeyEvent.KEYCODE_ENTER, 0, 0, 0, '\n'.code, false))
+        assertTrue(controller.submitPending)
     }
 
     @Test fun bangIsAnIdleHomeOnlyNonContactMagicCommand() {

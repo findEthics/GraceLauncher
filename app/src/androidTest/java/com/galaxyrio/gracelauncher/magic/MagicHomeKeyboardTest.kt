@@ -46,6 +46,7 @@ class MagicHomeKeyboardTest {
             originalAssistantEnabled = assistant.enabled
             originalHomeButtonVisible = assistant.homeButtonVisible
             magic.close()
+            magic.clearSavedPill(magic.pillRevision)
             originalSource = magic.dataSource
             magic.dataSource = synthetic
             messagingPreferences = compose.activity.getSharedPreferences("magic_commands", Context.MODE_PRIVATE)
@@ -60,6 +61,7 @@ class MagicHomeKeyboardTest {
     @After fun restoreAssistant() {
         compose.runOnUiThread {
             magic.close()
+            magic.clearSavedPill(magic.pillRevision)
             magic.fakeCall = null
             magic.fakeCallPermission = false
             magic.dataSource = originalSource
@@ -534,7 +536,7 @@ class MagicHomeKeyboardTest {
         compose.runOnUiThread { assertNull(magic.session!!.selectedNote); assertEquals(-1, magic.session!!.selectedIndex) }
     }
 
-    @Test fun minusOpenedTodoSavesLiteralHyphenShowsAddedToastAndClosesWindow() {
+    @Test fun minusOpenedTodoSavesLiteralHyphenShowsAddedPillAndClosesWindow() {
         compose.runOnUiThread {
             val opener = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MINUS)
             assertTrue(compose.activity.dispatchKeyEvent(opener))
@@ -543,6 +545,7 @@ class MagicHomeKeyboardTest {
             assertEquals("", magic.session?.input?.text)
         }
         compose.onNodeWithTag("magic_input").assertIsFocused().performTextInput("Check")
+        compose.onNodeWithText("✅", useUnmergedTree = true).assertExists()
         val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MINUS)
         compose.onNodeWithTag("magic_input").performTextInput("in")
@@ -550,13 +553,14 @@ class MagicHomeKeyboardTest {
         compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Enter) }
         compose.waitUntil(5_000) { magic.session == null }
         compose.onNodeWithTag("magic_window").assertDoesNotExist()
+        compose.onNodeWithTag("magic_saved_pill").assertIsDisplayed().assert(hasAnyDescendant(hasText("To-do added")))
         compose.runOnUiThread {
             assertEquals(listOf(Triple("Check-in", true, null)), synthetic.saves)
             assertEquals(listOf("To-do added"), synthetic.toasts)
         }
     }
 
-    @Test fun submittingUnselectedNoteSavesNewNoteShowsAddedToastAndClosesWindow() {
+    @Test fun submittingUnselectedNoteSavesNewNoteShowsAddedPillAndClosesWindow() {
         synthetic.noteSnapshot = listOf(com.galaxyrio.gracelauncher.platform.SelectedNote(1, "Packing list"))
         compose.runOnUiThread { magic.open(MagicKind.Note) }
         compose.onNodeWithTag("magic_input").performTextInput("Packing")
@@ -565,13 +569,14 @@ class MagicHomeKeyboardTest {
         compose.onNodeWithTag("magic_submit").performClick()
         compose.waitUntil(5_000) { magic.session == null }
         compose.onNodeWithTag("magic_window").assertDoesNotExist()
+        compose.onNodeWithTag("magic_saved_pill").assertIsDisplayed().assert(hasAnyDescendant(hasText("Note added")))
         compose.runOnUiThread {
             assertEquals(listOf(Triple("Packing", false, null)), synthetic.saves)
             assertEquals(listOf("Note added"), synthetic.toasts)
         }
     }
 
-    @Test fun submittingSelectedNoteSavesToItsIdShowsUpdatedToastAndClosesWindow() {
+    @Test fun submittingSelectedNoteSavesToItsIdShowsUpdatedPillAndClosesWindow() {
         synthetic.noteSnapshot = listOf(com.galaxyrio.gracelauncher.platform.SelectedNote(7, "Packing list"))
         compose.runOnUiThread { magic.open(MagicKind.Note) }
         compose.onNodeWithTag("magic_result:0").performClick()
@@ -580,6 +585,7 @@ class MagicHomeKeyboardTest {
         compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Enter) }
         compose.waitUntil(5_000) { magic.session == null }
         compose.onNodeWithTag("magic_window").assertDoesNotExist()
+        compose.onNodeWithTag("magic_saved_pill").assertIsDisplayed().assert(hasAnyDescendant(hasText("Note updated")))
         compose.runOnUiThread {
             assertEquals(listOf(Triple("Add sunscreen", false, 7L)), synthetic.saves)
             assertEquals(listOf("Note updated"), synthetic.toasts)
@@ -597,6 +603,7 @@ class MagicHomeKeyboardTest {
         compose.onNodeWithTag("magic_status").assertTextEquals(error)
         compose.onNodeWithTag("magic_input").assertTextContains("Keep this draft")
         compose.onNodeWithTag("magic_submit").assertIsEnabled()
+        compose.onNodeWithTag("magic_saved_pill").assertDoesNotExist()
         compose.runOnUiThread {
             assertEquals(listOf(Triple("Keep this draft", true, null)), synthetic.saves)
             assertTrue(synthetic.toasts.isEmpty())
@@ -752,6 +759,58 @@ class MagicHomeKeyboardTest {
                 }
                 compose.onNodeWithTag("magic_input").performKeyInput { keyDown(Key.ShiftLeft); pressKey(Key.Enter); keyUp(Key.ShiftLeft) }
                 compose.runOnUiThread { assertEquals("\n", magic.session!!.input.text); assertFalse(magic.session!!.consumed) }
+            }
+        }
+    }
+
+    @Test fun imeTabCyclesNotesWithoutEditingAndFirstEnterOrNewlineSelects() {
+        synthetic.noteSnapshot = listOf(
+            com.galaxyrio.gracelauncher.platform.SelectedNote(1, "First note"),
+            com.galaxyrio.gracelauncher.platform.SelectedNote(2, "Second note"),
+        )
+        for (imeEnter in listOf(false, true)) {
+            compose.runOnUiThread { magic.close(); magic.open(MagicKind.Note) }
+            compose.onNodeWithTag("magic_result:1").assertIsDisplayed()
+            compose.onNodeWithTag("magic_input").performTextInput("\t")
+            compose.onNodeWithTag("magic_result:0").assert(hasAnyAncestor(isSelected()))
+            compose.onNodeWithTag("magic_input").performTextInput("\t")
+            compose.onNodeWithTag("magic_result:1").assert(hasAnyAncestor(isSelected()))
+            compose.runOnUiThread { assertEquals("", magic.session!!.input.text); assertEquals(1, magic.session!!.selectedIndex) }
+            if (imeEnter) compose.onNodeWithTag("magic_input").performTextInput("\n")
+            else compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Enter) }
+            compose.onNodeWithTag("magic_input").assertIsFocused()
+            compose.runOnUiThread {
+                assertEquals(2L, magic.session!!.selectedNote?.id)
+                assertEquals("", magic.session!!.input.text)
+                assertFalse(magic.session!!.consumed)
+                assertTrue(synthetic.saves.isEmpty())
+            }
+        }
+    }
+
+    @Test fun tabImmediatelyAfterOpeningIsAppliedWhenResultsLoad() {
+        synthetic.noteSnapshot = listOf(
+            com.galaxyrio.gracelauncher.platform.SelectedNote(1, "First note"),
+            com.galaxyrio.gracelauncher.platform.SelectedNote(2, "Second note"),
+        )
+        synthetic.contactSnapshots = mapOf(null to listOf(
+            com.galaxyrio.gracelauncher.data.SearchContact(1, android.net.Uri.parse("content://synthetic/1"), "First contact", null, listOf("15550001")),
+            com.galaxyrio.gracelauncher.data.SearchContact(2, android.net.Uri.parse("content://synthetic/2"), "Second contact", null, listOf("15550002")),
+        ))
+        for (kind in listOf(MagicKind.Note, MagicKind.Message, MagicKind.Call)) {
+            for (backward in listOf(false, true)) {
+                compose.runOnUiThread {
+                    magic.close()
+                    magic.open(kind)
+                    val tab = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_TAB, 0, if (backward) KeyEvent.META_SHIFT_ON else 0)
+                    assertTrue(compose.activity.dispatchKeyEvent(tab))
+                    assertTrue(compose.activity.dispatchKeyEvent(KeyEvent.changeAction(tab, KeyEvent.ACTION_UP)))
+                    assertEquals(if (backward) -1 else 1, magic.pendingCycle)
+                }
+                val expected = if (kind == MagicKind.Note && !backward) 0 else 1
+                compose.onNodeWithTag("magic_result:$expected").assert(hasAnyAncestor(isSelected()))
+                compose.onNodeWithTag("magic_input").assertIsFocused()
+                compose.runOnUiThread { assertEquals(0, magic.pendingCycle); assertEquals("", magic.session!!.input.text) }
             }
         }
     }

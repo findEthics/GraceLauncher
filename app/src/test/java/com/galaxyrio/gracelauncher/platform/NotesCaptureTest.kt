@@ -65,7 +65,7 @@ class NotesCaptureTest {
         }
     }
 
-    @Test fun minusInEveryOpenSessionQueuesBeforeFocusAndPassesThroughAfterFocus() {
+    @Test fun minusInEveryOpenSessionPassesThroughBeforeAndAfterFocus() {
         for (kind in MagicKind.entries) {
             val controller = MagicController().apply { eligible = true; open(kind) }
             val session = checkNotNull(controller.session)
@@ -74,16 +74,12 @@ class NotesCaptureTest {
             assertSame(session, controller.session)
             assertEquals("follow", session.input.text)
             assertFalse(controller.press(KeyEvent.KEYCODE_MINUS, action = KeyEvent.ACTION_UP))
-            assertTrue(controller.press(KeyEvent.KEYCODE_MINUS, '-'))
-            assertSame(session, controller.session)
-            assertEquals("follow-", session.input.text)
-            assertTrue(controller.press(KeyEvent.KEYCODE_MINUS, action = KeyEvent.ACTION_UP))
             controller.focused()
             for (editorFocused in listOf(false, true)) {
                 assertFalse(controller.press(KeyEvent.KEYCODE_MINUS, '-', focused = editorFocused))
                 assertFalse(controller.press(KeyEvent.KEYCODE_MINUS, action = KeyEvent.ACTION_UP))
                 assertSame(session, controller.session)
-                assertEquals("follow-", session.input.text)
+                assertEquals("follow", session.input.text)
             }
         }
     }

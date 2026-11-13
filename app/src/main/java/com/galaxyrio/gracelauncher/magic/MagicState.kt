@@ -11,7 +11,7 @@ import com.katoaapps.openminilaunch.model.CommunicationRecipient
 import com.katoaapps.openminilaunch.features.messaging.MessageDraft
 
 internal enum class MagicKind(val prefix: Char, val displayPrefix: String) {
-    Message('@', "@"), Call('#', "📞"), Event('+', "📅"), Todo('(', "☑"), Note(',', "📝"), Alarm('!', "⏰");
+    Message('@', "@"), Call('#', "📞"), Event('+', "📅"), Todo('(', "✅"), Note(',', "📝"), Alarm('!', "⏰");
     val usesContacts get() = this == Message || this == Call
 }
 
@@ -19,6 +19,13 @@ internal fun isSingleNewlineInsertion(previous: String, updated: String): Boolea
     if (updated.length != previous.length + 1) return false
     val prefixLen = previous.commonPrefixWith(updated).length
     if (updated[prefixLen] != '\n') return false
+    return previous.substring(prefixLen) == updated.substring(prefixLen + 1)
+}
+
+internal fun isSingleTabInsertion(previous: String, updated: String): Boolean {
+    if (updated.length != previous.length + 1) return false
+    val prefixLen = previous.commonPrefixWith(updated).length
+    if (updated[prefixLen] != '\t') return false
     return previous.substring(prefixLen) == updated.substring(prefixLen + 1)
 }
 
@@ -108,6 +115,8 @@ internal class MagicSession(val id: Long, val kind: MagicKind) {
 
 internal class MagicController {
     var session by mutableStateOf<MagicSession?>(null); private set
+    var pillMessage by mutableStateOf<String?>(null); private set
+    var pillRevision by mutableStateOf(0); private set
     var dataSource: MagicDataSource? = null
     var fakeCall: ((String, Boolean) -> Boolean)? = null
     var fakeCallPermission = false
@@ -116,21 +125,35 @@ internal class MagicController {
     internal val keys = MagicKeySequence()
     private var composerEverFocused = false
     var onSubmit: (() -> Unit)? = null
+    var onCycle: ((Boolean) -> Unit)? = null
+    var pendingCycle = 0
     var submitPending = false
     var onOpenSearch: (() -> Unit)? = null
     var onSearchText: ((String) -> Unit)? = null
     var searchOpening = false
 
+    fun showSavedPill(message: String) {
+        pillMessage = message
+        pillRevision++
+    }
+    fun clearSavedPill(revision: Int) {
+        if (pillRevision == revision) pillMessage = null
+    }
     fun open(kind: MagicKind) {
         session = MagicSession(++generation, kind)
         composerEverFocused = false
+        onSubmit = null
+        onCycle = null
         submitPending = false
+        pendingCycle = 0
     }
     fun close() {
         session?.cancelSms()
         session = null
         searchOpening = false
         onSubmit = null
+        onCycle = null
+        pendingCycle = 0
         submitPending = false
         composerEverFocused = false
     }
@@ -181,7 +204,15 @@ internal class MagicController {
             else if (printable(character)) { onSearchText?.invoke(String(Character.toChars(character))); return true }
         }
         val current = session ?: return false
-        if (textEditorFocused || character == '('.code || character == ','.code || captureKind != null) return false
+        // Tab belongs to the new session even while Android still reports the previous editor.
+        if (!composerEverFocused && keyCode == KeyEvent.KEYCODE_TAB) {
+            if (repeatCount == 0) {
+                val backward = metaState and KeyEvent.META_SHIFT_MASK != 0
+                onCycle?.invoke(backward) ?: run { pendingCycle += if (backward) -1 else 1 }
+            }
+            return true
+        }
+        if (textEditorFocused || character == '('.code || character == ','.code || character == '-'.code || captureKind != null) return false
         // Compose can take a frame to focus after the opening key.
         if (!composerEverFocused) {
             if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {

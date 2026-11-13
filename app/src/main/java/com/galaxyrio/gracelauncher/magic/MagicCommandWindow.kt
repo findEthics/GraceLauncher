@@ -1,12 +1,16 @@
 package com.galaxyrio.gracelauncher.magic
 
 import android.Manifest
-import android.widget.Toast
+import android.view.animation.AccelerateInterpolator
+import android.view.animation.DecelerateInterpolator
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -25,6 +29,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -32,6 +37,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.LocalResources
@@ -41,12 +47,16 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.contentDataType
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -62,13 +72,55 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 
 private data class MagicRow(val key: String, val label: String, val detail: String, val choose: () -> Unit)
 
 @Composable
 internal fun MagicCommandWindow(controller: MagicController, apps: List<LauncherApp>, onLaunchShortcut: (LauncherShortcut) -> Unit) {
-    val session = controller.session ?: return
-    key(session.id) { MagicCommandContent(controller, session, apps, onLaunchShortcut) }
+    val session = controller.session
+    if (session != null) {
+        key(session.id) { MagicCommandContent(controller, session, apps, onLaunchShortcut) }
+    }
+    MagicSavedPill(controller)
+}
+
+@Composable
+private fun MagicSavedPill(controller: MagicController) {
+    val message = controller.pillMessage ?: return
+    val revision = controller.pillRevision
+    val alpha = remember { Animatable(0f) }
+    val offsetDp = remember { Animatable(16f) }
+    val density = LocalDensity.current.density
+    val decelerate = remember { Easing { DecelerateInterpolator().getInterpolation(it) } }
+    val accelerate = remember { Easing { AccelerateInterpolator().getInterpolation(it) } }
+    LaunchedEffect(revision, message) {
+        alpha.snapTo(0f)
+        offsetDp.snapTo(16f)
+        coroutineScope {
+            launch { alpha.animateTo(1f, tween(220, easing = decelerate)) }
+            launch { offsetDp.animateTo(0f, tween(220, easing = decelerate)) }
+        }
+        delay(1200L)
+        coroutineScope {
+            launch { alpha.animateTo(0f, tween(220, easing = accelerate)) }
+            launch { offsetDp.animateTo(16f, tween(220, easing = accelerate)) }
+        }
+        controller.clearSavedPill(revision)
+    }
+    Box(Modifier.fillMaxSize().safeDrawingPadding().padding(start = 20.dp, end = 20.dp, bottom = 62.dp),
+        contentAlignment = Alignment.BottomCenter) {
+        Box(Modifier.graphicsLayer { this.alpha = alpha.value; translationY = offsetDp.value * density }
+            .heightIn(min = 48.dp)
+            .background(MaterialTheme.colorScheme.background, RoundedCornerShape(28.dp))
+            .border(1.5.dp, Color(0xFFEC5B2B), RoundedCornerShape(28.dp))
+            .padding(horizontal = 24.dp, vertical = 10.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite }.testTag("magic_saved_pill"),
+            contentAlignment = Alignment.Center) {
+            Text(message, color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, textAlign = TextAlign.Center)
+        }
+    }
 }
 
 @Composable
@@ -115,14 +167,17 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
             else emptyList()
     }
     val focus = remember { FocusRequester() }
+    val inputFocused = remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    var notes by remember(contactsSource, s.input.text, resumeVersion) { mutableStateOf(emptyList<SelectedNote>()) }
+    var notes by remember(contactsSource, resumeVersion) { mutableStateOf(emptyList<SelectedNote>()) }
     LaunchedEffect(contactsSource, s.input.text, s.selectedNote, resumeVersion) {
         if (s.kind == MagicKind.Note && s.selectedNote == null) {
             val result = contactsSource.notes(s.input.text)
             notes = result.orEmpty()
             if (result == null) s.status = resources.getString(R.string.notes_capture_unavailable)
             else if (s.status == resources.getString(R.string.notes_capture_unavailable)) s.status = ""
+        } else {
+            notes = emptyList()
         }
     }
     val inputModeManager = LocalInputModeManager.current
@@ -163,7 +218,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
         if (!validSms(request) || !s.claimSms(request)) return
         val draft = request.draft
         when (actions.sendSms(draft.recipient.address, draft.body)) {
-            SmsOutcome.Queued -> { Toast.makeText(context, R.string.magic_sms_queued, Toast.LENGTH_LONG).show(); c.close() }
+            SmsOutcome.Queued -> { c.showSavedPill(resources.getString(R.string.magic_sms_queued)); c.close() }
             SmsOutcome.Unknown -> s.status = resources.getString(R.string.magic_sms_uncertain)
             SmsOutcome.NoSim, SmsOutcome.Unavailable -> {
                 val result = actions.messaging.openPreferredMessageDraft(draft.recipient, draft.body, null)
@@ -212,7 +267,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
         if (s.kind == MagicKind.Call) {
             if (recipient.address.looksLikePhoneRecipient()) callConfirmation = recipient
             else if (active() && s.claim()) { handoff(actions.call(recipient.address, chooser = true)) }
-        } else { s.choose(recipient, pkg, inferred); highlight = 0; focus.requestFocus() }
+        } else { s.choose(recipient, pkg, inferred); highlight = 0; if (!inputFocused.value) focus.requestFocus() }
     }
     fun chooseConversation(conversation: MagicConversation) {
         if (!contactsSource.conversationEligible(conversation)) { s.status = resources.getString(R.string.magic_conversation_unavailable); return }
@@ -226,7 +281,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                 val body = s.body
                 s.conversation = conversation
                 s.input = TextFieldValue(body, TextRange(body.length))
-                focus.requestFocus()
+                if (!inputFocused.value) focus.requestFocus()
             }
             is RecentConversationSelection.DraftRecipient -> chooseRecipient(choice.contact.toCommunicationRecipient(), choice.packageName, inferred = true)
             is RecentConversationSelection.DirectOpen -> { if (active()) { onLaunchShortcut(conversation.shortcut); c.close() } }
@@ -240,7 +295,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
     val rows = buildList {
         if (s.kind == MagicKind.Note && s.selectedNote == null) {
             notes.filter { it.title.contains(s.input.text, ignoreCase = true) }.forEach { note ->
-                add(MagicRow("note:${note.id}", note.title, "") { s.chooseNote(note); focus.requestFocus() })
+                add(MagicRow("note:${note.id}", note.title, "") { s.chooseNote(note); if (!inputFocused.value) focus.requestFocus() })
             }
         }
         if (s.kind.usesContacts && s.recipient == null && s.conversation == null) {
@@ -252,6 +307,27 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                 }
             }
             if (s.query.isNotBlank() && allowRawMagicRecipient(s.kind, prefs.provider)) add(MagicRow("raw", s.query, resources.getString(R.string.magic_raw_recipient)) { chooseRecipient(userEnteredRecipient(s.query)) })
+        }
+    }
+    val cycleSelection: (Boolean) -> Unit = { backward ->
+        if (rows.isNotEmpty()) {
+            if (s.kind == MagicKind.Note) {
+                s.selectedIndex = if (backward) {
+                    if (s.selectedIndex <= 0) rows.lastIndex else s.selectedIndex - 1
+                } else {
+                    if (s.selectedIndex !in rows.indices) 0 else (s.selectedIndex + 1) % rows.size
+                }
+            } else {
+                val current = highlight.coerceIn(0, rows.lastIndex)
+                highlight = if (backward) {
+                    if (current <= 0) rows.lastIndex else current - 1
+                } else {
+                    (current + 1) % rows.size
+                }
+            }
+        } else {
+            // Results may still be loading when the pre-focus callback is installed.
+            c.pendingCycle += if (backward) -1 else 1
         }
     }
     val eventTitle = stringResource(R.string.magic_event)
@@ -269,9 +345,6 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                 if (command == null) s.status = resources.getString(R.string.magic_alarm_status_invalid)
                 else if (active() && s.claim()) {
                     if (actions.alarm(command)) {
-                        if (command is MagicAlarmCommand.Timer) {
-                            Toast.makeText(context, R.string.magic_timer_started, Toast.LENGTH_SHORT).show()
-                        }
                         c.close()
                     } else handoff(false)
                 }
@@ -292,7 +365,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                                     noteId == null -> R.string.magic_note_added
                                     else -> R.string.magic_note_updated
                                 })
-                                Toast.makeText(context.applicationContext, message, Toast.LENGTH_SHORT).show()
+                                c.showSavedPill(message)
                                 contactsSource.onCaptureToast(message)
                                 c.close()
                             }
@@ -342,13 +415,22 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
         }
         Unit
     }
-    SideEffect { c.onSubmit = submit }
-    LaunchedEffect(contacts, s.input.text) { if (c.submitPending && contacts != null) { c.submitPending = false; submit() } }
+    SideEffect { c.onSubmit = submit; c.onCycle = cycleSelection }
     LaunchedEffect(s.query) { highlight = 0 }
-    LaunchedEffect(selectedIndex, rows.map { it.key }) { if (selectedIndex in rows.indices) list.animateScrollToItem(selectedIndex) }
+    LaunchedEffect(rows.size) {
+        if (rows.isNotEmpty() && c.pendingCycle != 0) {
+            val pending = c.pendingCycle
+            c.pendingCycle = 0
+            repeat(kotlin.math.abs(pending)) { cycleSelection(pending < 0) }
+        }
+    }
+    LaunchedEffect(contacts, s.input.text) { if (c.submitPending && contacts != null) { c.submitPending = false; submit() } }
+    LaunchedEffect(selectedIndex, rows.map { it.key }) { if (selectedIndex in rows.indices) list.scrollToItem(selectedIndex) }
     LaunchedEffect(Unit) { focus.requestFocus(); keyboard?.show() }
     BackHandler { c.close() }
     val recipientSearch = s.searchingForRecipient
+    // Changing options restarts Compose's input session; retain the opening editor options.
+    val keyboardOptions = remember { magicKeyboardOptions(recipientSearch) }
     val inputDescription = stringResource(when (s.kind) {
         MagicKind.Todo -> R.string.magic_todo_input
         MagicKind.Note -> if (s.selectedNote == null) R.string.magic_note_input else R.string.magic_note_append
@@ -366,10 +448,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
             LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("magic_results"), state = list,
                 verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.Bottom)) {
                 itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
-                    val rowColor by animateColorAsState(
-                        targetValue = if (index == selectedIndex) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-                        label = "magic_row_color",
-                    )
+                    val rowColor = if (index == selectedIndex) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer
                     Surface(shape = RoundedCornerShape(20.dp), color = rowColor,
                         modifier = Modifier.fillMaxWidth().semantics { selected = index == selectedIndex }) {
                         TextButton(onClick = row.choose, enabled = !s.consumed, modifier = Modifier.fillMaxWidth().focusProperties { canFocus = false }.testTag("magic_result:$index")) {
@@ -378,7 +457,6 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                     }
                 }
             }
-            val inputFocused = remember { mutableStateOf(false) }
             val focusedBorder = MaterialTheme.colorScheme.primary
             val unfocusedBorder = MaterialTheme.colorScheme.outlineVariant
             val hasAuxiliaryHeader = s.selectedNote != null || s.recipient != null || s.conversation != null ||
@@ -433,8 +511,11 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                     MagicEditorInput(recipientSearch) {
                         OutlinedTextField(value = s.input, onValueChange = {
                             if (!s.consumed) {
-                                if (isSingleNewlineInsertion(s.input.text, it.text)) submit()
-                                else s.input = it
+                                when {
+                                    isSingleNewlineInsertion(s.input.text, it.text) -> submit()
+                                    isSingleTabInsertion(s.input.text, it.text) -> cycleSelection(false)
+                                    else -> s.input = it
+                                }
                             }
                         },
                             modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged {
@@ -449,23 +530,8 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                                 .onPreviewKeyEvent { event ->
                                     when (event.key) {
                                          Key.Escape -> { if (event.type == KeyEventType.KeyDown) c.close(); true }
-                                         Key.Tab -> {
-                                             if (event.type == KeyEventType.KeyDown && rows.isNotEmpty()) {
-                                                 if (s.kind == MagicKind.Note) {
-                                                     s.selectedIndex = if (event.isShiftPressed) {
-                                                         if (s.selectedIndex <= 0) rows.lastIndex else s.selectedIndex - 1
-                                                     } else {
-                                                         if (s.selectedIndex !in rows.indices) 0 else (s.selectedIndex + 1) % rows.size
-                                                     }
-                                                 } else {
-                                                     val current = highlight.coerceIn(0, rows.lastIndex)
-                                                     highlight = if (event.isShiftPressed) {
-                                                         if (current <= 0) rows.lastIndex else current - 1
-                                                     } else {
-                                                         (current + 1) % rows.size
-                                                     }
-                                                 }
-                                             }
+                                          Key.Tab -> {
+                                              if (event.type == KeyEventType.KeyDown) cycleSelection(event.isShiftPressed)
                                              true
                                          }
                                          Key.DirectionDown, Key.DirectionUp -> if (rows.isEmpty()) false else {
@@ -503,7 +569,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                                      }), maxLines = 1)
                                  }
                              },
-                             keyboardOptions = magicKeyboardOptions(recipientSearch), keyboardActions = KeyboardActions(onSend = { submit() }))
+                              keyboardOptions = keyboardOptions, keyboardActions = KeyboardActions(onSend = { submit() }))
                     }
                 }
             }

@@ -4,7 +4,9 @@ import android.text.InputType
 import android.view.inputmethod.EditorInfo
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.InterceptPlatformTextInput
 import androidx.compose.ui.platform.PlatformTextInputInterceptor
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
@@ -36,12 +38,13 @@ internal fun magicEditorRequest(
         }
 }
 
-/** Only the enclosed editor's input session changes; no shared Home View flags are touched. */
+/** Keep the enclosed editor's input session alive while recipient selection changes. */
 @Composable
 internal fun MagicEditorInput(recipientSearch: Boolean, content: @Composable () -> Unit) {
-    val interceptor = remember(recipientSearch) {
+    val currentRecipientSearch by rememberUpdatedState(recipientSearch)
+    val interceptor = remember {
         PlatformTextInputInterceptor { request, nextHandler ->
-            nextHandler.startInputMethod(magicEditorRequest(request, recipientSearch))
+            nextHandler.startInputMethod(magicEditorRequest(request, currentRecipientSearch))
         }
     }
     InterceptPlatformTextInput(interceptor, content)
