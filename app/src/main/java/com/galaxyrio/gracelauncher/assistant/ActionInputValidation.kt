@@ -61,7 +61,7 @@ internal object ActionInputValidation {
       "seventy" to 70, "eighty" to 80, "ninety" to 90,
     )
 
-  private fun normalizeNumbers(prompt: String): String =
+  internal fun normalizeNumbers(prompt: String): String =
     numberWords.replace(prompt.lowercase(Locale.ROOT)) { match ->
       if (match.groupValues[1].isNotEmpty()) {
         (spokenNumberValues.getValue(match.groupValues[1]) +

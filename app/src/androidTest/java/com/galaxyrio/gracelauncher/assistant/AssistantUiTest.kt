@@ -205,28 +205,6 @@ class AssistantUiTest {
         compose.onNodeWithTag("assistant_stop").assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(1, stops) }
     }
-    @Test fun rejectedAlarmShowsOwnedValidationReasonAndEndsTheTurnBeforeDispatch() {
-        lateinit var controller: AssistantController
-        var turn = 0L
-        compose.runOnUiThread {
-            controller = AssistantController(InstrumentationRegistry.getInstrumentation().targetContext, CoroutineScope(Dispatchers.Main))
-            controller.chat.open()
-            turn = controller.chat.begin("!alarm 7:00", true)
-        }
-        try {
-            compose.setContent { MaterialTheme { AssistantChat(controller) } }
-            compose.runOnUiThread {
-                assertFalse(controller.validateRequestForTurn(turn,
-                    MobileAction("createAlarm", mapOf("time" to "07:00", "label" to "")), "alarm 7:00"))
-                assertTrue(controller.chat.turns.single().complete)
-                assertFalse(controller.chat.turns.single().inContext)
-                assertFalse(controller.busy)
-            }
-            compose.onNodeWithTag("assistant_response:$turn").assertTextEquals("Say an explicit alarm time that matches. No alarm was set.")
-            compose.onNodeWithText("No valid action produced; nothing executed.").assertDoesNotExist()
-            compose.onNodeWithTag("assistant_status").assertDoesNotExist() // The response already contains the reason.
-        } finally { compose.runOnUiThread { controller.close() } }
-    }
     @Test fun hardwareShortcutsOpenOnceAndDoNotStealEditorOrOverlayInput() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {
@@ -239,13 +217,14 @@ class AssistantUiTest {
                 assertFalse(controller.hardwareKey(AndroidKeyEvent(0, 0, AndroidKeyEvent.ACTION_DOWN,
                     AndroidKeyEvent.KEYCODE_2, 0, AndroidKeyEvent.META_SHIFT_ON), false))
                 assertFalse(controller.chat.visible)
+                assertFalse(controller.hardwareKey(AndroidKeyEvent(0, 0, AndroidKeyEvent.ACTION_DOWN,
+                    AndroidKeyEvent.KEYCODE_1, 0, AndroidKeyEvent.META_SHIFT_ON), false))
+                assertFalse(controller.chat.visible)
                 for ((key, prefix, meta) in listOf(
-                    Triple(AndroidKeyEvent.KEYCODE_1, "!", AndroidKeyEvent.META_SHIFT_ON),
                     Triple(AndroidKeyEvent.KEYCODE_SPACE, "", 0),
                 )) {
                     val down = AndroidKeyEvent(0, 0, AndroidKeyEvent.ACTION_DOWN, key, 0, meta)
                     if (key == AndroidKeyEvent.KEYCODE_SPACE) assertEquals(' '.code, down.unicodeChar)
-                    else assertEquals(if (prefix.isEmpty()) '@'.code else '!'.code, down.unicodeChar)
                     controller.homeShortcutEligible = false
                     assertFalse(controller.hardwareKey(down, false)) // Other overlay/drawer, not idle HOME.
                     controller.homeShortcutEligible = true
@@ -294,6 +273,7 @@ class AssistantUiTest {
         compose.setContent { MaterialTheme(colorScheme = darkColorScheme()) {
             AssistantChatWindow(chat, false, true, reply, onSend = {}, onStop = {}, onClose = chat::clear)
         } }
+        closeSoftKeyboard()
         compose.onNodeWithTag("assistant_chat_close").assertDoesNotExist()
         compose.onNodeWithTag("assistant_send").assertDoesNotExist()
         compose.onNodeWithText("Offline assistant").assertDoesNotExist()
@@ -304,7 +284,6 @@ class AssistantUiTest {
         compose.onNodeWithText("Reply complete — no action").assertDoesNotExist()
         compose.onNodeWithTag("assistant_status").assertDoesNotExist()
         compose.onNodeWithTag("assistant_response:$second").assertTextEquals(reply)
-        closeSoftKeyboard()
         val screenshot = File(InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir("test-screenshots"), "assistant-chat-refined.png")
         screenshot.outputStream().use { compose.onNodeWithTag("assistant_chat_window").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it) }
     }

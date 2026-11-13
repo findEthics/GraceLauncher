@@ -1,8 +1,6 @@
 package com.galaxyrio.gracelauncher.assistant
 
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -51,12 +49,6 @@ internal fun AssistantLifecycle(assistant: AssistantController) {
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE) assistant.pause() }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
-    }
-    val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        assistant.permissionResult(it.isNotEmpty() && it.values.all { granted -> granted })
-    }
-    LaunchedEffect(assistant.permissionRequest) {
-        if (assistant.permissionRequest.isNotEmpty()) permissions.launch(assistant.consumePermissionRequest())
     }
 }
 

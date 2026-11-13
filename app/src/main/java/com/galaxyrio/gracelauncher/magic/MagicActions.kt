@@ -11,6 +11,7 @@ import android.os.Process
 import android.os.UserHandle
 import android.os.UserManager
 import android.provider.CalendarContract
+import android.provider.AlarmClock
 import android.provider.Settings
 import android.telephony.PhoneNumberUtils
 import android.telephony.SmsManager
@@ -90,6 +91,8 @@ internal class MagicActions(private val context: Context) {
         draft.endMillis?.let { putExtra(CalendarContract.EXTRA_EVENT_END_TIME, it) }
     })
 
+    fun alarm(command: MagicAlarmCommand): Boolean = start(magicAlarmIntent(command))
+
     suspend fun conversations(apps: List<LauncherApp>, packages: Set<String>, preferred: String?): List<MagicConversation> = withContext(Dispatchers.IO) {
         if (!launcherApps.hasShortcutHostPermission()) return@withContext emptyList()
         val flags = LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC
@@ -123,3 +126,12 @@ internal class MagicActions(private val context: Context) {
                 (Build.VERSION.SDK_INT < 35 || launcherApps.getLauncherUserInfo(user)?.userType == "android.os.usertype.profile.MANAGED"))
     }.getOrDefault(false)
 }
+
+internal fun magicAlarmIntent(command: MagicAlarmCommand): Intent = when (command) {
+    is MagicAlarmCommand.Alarm -> Intent(AlarmClock.ACTION_SET_ALARM).apply {
+        putExtra(AlarmClock.EXTRA_HOUR, command.hour)
+        putExtra(AlarmClock.EXTRA_MINUTES, command.minute)
+        command.message?.takeIf { it.isNotBlank() }?.let { putExtra(AlarmClock.EXTRA_MESSAGE, it) }
+    }
+    is MagicAlarmCommand.Timer -> Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, command.seconds)
+}.putExtra(AlarmClock.EXTRA_SKIP_UI, true)

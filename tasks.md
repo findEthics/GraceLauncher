@@ -1,5 +1,12 @@
 # Tasks
 
+## Deterministic alarm/timer Magic — 2026-11-13
+
+- [x] Idle-Home `!` opens local alarm/timer Magic without Assistant/model access. Calendar time rules handle alarm prefixes and bare hours; spoken fractions and compact/spoken timer durations are supported. Preview and validation stay in the panel; successful Clock intent handoff closes it with a toast. These toasts confirm intent launch, not provider read-back or ringing.
+- [x] Accept Titan 2 Elite Alt+I-produced `-` for to-dos. Assistant now opens only with Space and submits all text (including `!`) as chat/optional Web search; removed action dispatch and action permission requests from its submit/UI flow. Legacy action inference/executor/skill APIs remain for existing isolated tests, not chat routing.
+- [x] JDK21: `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest` passed: **198 JVM tests, zero failures/errors/skips**, both debug APKs built; `git diff --check` passed. First run exposed an obsolete test rejecting Alt-minus; updated it and reran the complete requested command successfully. Log: `/private/var/folders/d4/g73rwlh56w3b712vq80zl2y40000gn/T/opencode/grace-magic-alarm-gradle-final.log`.
+- [ ] Android tests were compiled only. No emulator/device access, install, real Clock handoff/ringing, live chat/web, signed-release or physical Titan verification. Alarm date text does not schedule a future date; Clock receives hour/minute only. Calendar language support is unchanged.
+
 ## Notes quick capture — 2026-11-12
 
 - [x] Idle-Home Alt+N / Alt+T / Alt+A send package-scoped NEW_NOTE / NEW_TODO / APPEND_NOTE intents to `com.example.notes`; initial KeyDown only, exact Alt modifier, no text/Magic/search/chat input. Physical-key matching precedes Unicode Magic/assistant routing so Titan Alt symbols cannot steal these chords.
@@ -23,6 +30,8 @@
 
 ## Pending
 
+- [ ] Good-to-have: give Assistant read access to Notes and To-dos through certificate-verified `NotesCaptureProvider`: signature-authorized `list_tasks` and note-body reads in Notes, then compact prompt injection or a read tool in `AssistantController`. Reference research: `alexeyw/knotwork` uses in-app workspace files, `$MEMORY_SUMMARY` prompt variables and AppFunctions; cross-app AppFunctions require privileged system permissions on Android, so extending our provider is the appropriate Grace + Notes architecture. Deferred, not implemented.
+- [ ] Titan 2 Elite firmware quirk: `AguiKeyboardShortcut.java` uses `settingsValue.contains("T")`, which matches `Timer_Create` in `Q-long-Timer_CreateH-long-manifest_home` and swallows `KEYCODE_T` (`(` / Alt+T) on Home before Grace receives it. Requires a firmware fix/workaround; Grace now accepts Alt+I-produced `-` for to-dos.
 - [ ] Keep model downloads running when leaving Advanced. Reuse the retained ViewModel controller instead of cancelling downloads on screen disposal; preserve explicit Cancel and owner teardown. Add a navigation-during-download regression.
 - [ ] Recover completed `.part` model downloads before requesting more bytes. Verify expected size and pinned SHA-256, then publish valid files; discard invalid files safely. Test interruption after the final byte and HTTP 416 recovery.
 - [ ] Correct internet/privacy claims in `README.md` and `README.zh-CN.md`. Match the in-app disclosure: local inference, internet permission for model downloads, and opt-in Tavily queries that may contain chat details. Preserve accurate no-advertising/tracking claims.

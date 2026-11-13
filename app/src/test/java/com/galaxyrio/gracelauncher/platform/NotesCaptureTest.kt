@@ -50,7 +50,7 @@ class NotesCaptureTest {
         assertNull(controller.session)
     }
 
-    @Test fun minusRequiresEligibleHomeWithoutAnEditorOrControlAltMeta() {
+    @Test fun minusRequiresEligibleHomeWithoutAnEditorOrControlMeta() {
         for (eligible in listOf(false, true)) for (focused in listOf(false, true)) {
             if (eligible && !focused) continue
             val controller = MagicController().apply { this.eligible = eligible }
@@ -58,7 +58,7 @@ class NotesCaptureTest {
             assertNull(controller.session)
             assertFalse(controller.press(KeyEvent.KEYCODE_MINUS, action = KeyEvent.ACTION_UP))
         }
-        for (meta in listOf(KeyEvent.META_CTRL_ON, KeyEvent.META_ALT_ON, KeyEvent.META_META_ON)) {
+        for (meta in listOf(KeyEvent.META_CTRL_ON, KeyEvent.META_META_ON)) {
             val controller = MagicController().apply { eligible = true }
             assertFalse(controller.press(KeyEvent.KEYCODE_MINUS, '-', meta = meta))
             assertNull(controller.session)

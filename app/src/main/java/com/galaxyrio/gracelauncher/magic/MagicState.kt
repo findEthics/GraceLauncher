@@ -11,7 +11,7 @@ import com.katoaapps.openminilaunch.model.CommunicationRecipient
 import com.katoaapps.openminilaunch.features.messaging.MessageDraft
 
 internal enum class MagicKind(val prefix: Char) {
-    Message('@'), Call('#'), Event('+'), Todo('('), Note(',');
+    Message('@'), Call('#'), Event('+'), Todo('('), Note(','), Alarm('!');
     val usesContacts get() = this == Message || this == Call
 }
 
@@ -161,8 +161,7 @@ internal class MagicController {
                 open(captureKind)
                 return true
             }
-            if (character in "@#+?(,-".map(Char::code) &&
-                (character != '-'.code || metaState and KeyEvent.META_ALT_MASK == 0)) {
+            if (character in "@#+?(,-!".map(Char::code)) {
                 keys.openingKey = keyCode
                 if (character == '?'.code) { searchOpening = true; onOpenSearch?.invoke() }
                 else open(if (character == '-'.code) MagicKind.Todo else MagicKind.entries.first { it.prefix.code == character })

@@ -24,10 +24,7 @@ class AssistantChatState {
     var webSearchEnabled by mutableStateOf(true)
     private var nextId = 0L // Never reuse an id after Close; late completions cannot enter the new chat.
 
-    fun open(actionShortcut: Boolean = false) {
-        if (actionShortcut && !draft.startsWith('!')) draft = "!$draft"
-        visible = true
-    }
+    fun open() { visible = true }
     fun minimize() { visible = false }
     fun clear() { visible = false; draft = ""; turns = emptyList(); contextDropped = false; webSearchEnabled = true }
     internal fun begin(request: String, action: Boolean): Long {
@@ -62,11 +59,9 @@ class AssistantChatState {
     }
 
     companion object {
-        /** Only the first literal ! is authorization; conversation text is never promoted to an action. */
-        internal fun actionRequest(message: String): String? = if (message.startsWith('!')) message.drop(1).trimStart(' ') else null
         internal fun validateActionRequest(request: String) {
             require(request.isNotBlank() && request.length <= 1000 && request.none(Char::isISOControl)) {
-                "Use one complete single-line action after !, at most 1,000 characters. Nothing executed."
+                "Use one complete single-line action, at most 1,000 characters. Nothing executed."
             }
         }
     }

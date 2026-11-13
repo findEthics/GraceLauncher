@@ -4,7 +4,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AssistantChatStateTest {
-    @Test fun searchSelectionIsSessionScopedAndActionsStayLocal() {
+    @Test fun searchSelectionIsSessionScopedAndBangIsOrdinaryChat() {
         val chat = AssistantChatState()
         assertTrue(chat.webSearchEnabled)
         val first = chat.begin("news", false)
@@ -13,8 +13,8 @@ class AssistantChatStateTest {
         chat.open(); chat.minimize(); chat.open()
         assertTrue(chat.webSearchEnabled)
         assertTrue(chat.turns.first().webSearch)
-        chat.begin("!Turn on the flashlight", true)
-        assertFalse(chat.turns.last().webSearch)
+        chat.begin("!timer 10m", false)
+        assertTrue(chat.turns.last().webSearch)
         assertTrue(chat.webSearchEnabled)
         chat.webSearchEnabled = false
         chat.begin("offline", false)
@@ -40,13 +40,6 @@ class AssistantChatStateTest {
         assertEquals(320, excerpt.toByteArray(Charsets.UTF_8).size)
         assertEquals("é😀".repeat(53) + "é", excerpt)
     }
-    @Test fun onlyAnExplicitLeadingBangIsAnAction() {
-        assertEquals("Set a timer for five minutes", AssistantChatState.actionRequest("!Set a timer for five minutes"))
-        assertEquals("Set a timer for five minutes", AssistantChatState.actionRequest("! Set a timer for five minutes"))
-        for (text in listOf("Set a timer for five minutes", "Quote: !call John Smith", "Say hello!", " !call John Smith")) {
-            assertNull(AssistantChatState.actionRequest(text))
-        }
-    }
     @Test fun actionBodiesRemainSingleLineAndBounded() {
         for (text in listOf("", " ", "Turn on\nthe flashlight", "Call\rJohn Smith", "\tCall John Smith", "x".repeat(1001))) {
             try { AssistantChatState.validateActionRequest(text); fail("Invalid action accepted") }
@@ -55,20 +48,18 @@ class AssistantChatStateTest {
         AssistantChatState.validateActionRequest("Turn on the flashlight")
         AssistantChatState.validateActionRequest("x".repeat(1000))
     }
-    @Test fun shortcutPreservesDraftAndSeedsOnlyOnePrefix() {
+    @Test fun openingChatPreservesDraftAndNeverSeedsAPrefix() {
         val chat = AssistantChatState()
-        chat.open(true)
-        assertEquals("!", chat.draft)
-        chat.open(true)
-        assertEquals("!", chat.draft)
-        chat.draft = "Set a timer for five minutes"
-        chat.open(true)
-        assertEquals("!Set a timer for five minutes", chat.draft)
+        chat.open()
+        assertEquals("", chat.draft)
+        chat.draft = "!timer 10m"
+        chat.open()
+        assertEquals("!timer 10m", chat.draft)
         assertEquals(chat.draft.length, chat.input.selection.end)
     }
     @Test fun minimizeRetainsButCloseClearsAndLateResultsCannotEnterNextSession() {
         val chat = AssistantChatState()
-        val old = chat.begin("!Call John Smith", true)
+        val old = chat.begin("Earlier question", false)
         chat.draft = "unsent draft"
         chat.open(); chat.minimize()
         assertFalse(chat.visible)
@@ -76,7 +67,7 @@ class AssistantChatStateTest {
         assertEquals(1, chat.turns.size)
         chat.clear(); chat.open()
         val fresh = chat.begin("hello", false)
-        chat.update(old, "old action result", complete = true, inContext = true)
+        chat.update(old, "old reply", complete = true, inContext = true)
         assertEquals(listOf(fresh), chat.turns.map { it.id })
         assertEquals("", chat.turns.single().response)
         assertEquals("", chat.draft)
@@ -87,7 +78,7 @@ class AssistantChatStateTest {
         chat.update(first, "reply", complete = true, inContext = true)
         val second = chat.begin("new", false)
         chat.update(second, "reply", complete = true, inContext = true)
-        val failed = chat.begin("!bad action", true)
+        val failed = chat.begin("Failed question", false)
         chat.update(failed, "Nothing executed", complete = true)
         chat.begin("current", false)
         assertEquals(listOf(second), chat.context(72).map { it.id })

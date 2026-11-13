@@ -52,7 +52,6 @@ class AssistantHomeKeyboardTest {
         compose.runOnUiThread { assistant.showHomeButton(false) }
         compose.onNodeWithTag("assistant_chat_button").assertDoesNotExist()
         for ((key, prefix, meta) in listOf(
-            Triple(KeyEvent.KEYCODE_1, "!", KeyEvent.META_SHIFT_ON),
             Triple(KeyEvent.KEYCODE_SPACE, "", 0),
         )) {
             compose.runOnUiThread {
@@ -70,7 +69,7 @@ class AssistantHomeKeyboardTest {
         compose.runOnUiThread { assistant.showHomeButton(true) }
         compose.onNodeWithTag("assistant_chat_button").assertIsDisplayed()
     }
-    @Test fun shiftedBangOpensAndRapidFollowingTextIsNotLostOrDuplicated() {
+    @Test fun shiftedBangOpensMagicInsteadOfAssistantAndPreservesRapidTyping() {
         compose.runOnUiThread {
             val down = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_1, 0, KeyEvent.META_SHIFT_ON)
             assertTrue(compose.activity.dispatchKeyEvent(down))
@@ -79,12 +78,13 @@ class AssistantHomeKeyboardTest {
             compose.activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_T))
             assertTrue(compose.activity.dispatchKeyEvent(KeyEvent.changeAction(down, KeyEvent.ACTION_UP)))
         }
-        compose.onNodeWithTag("assistant_chat_window").assertIsDisplayed()
-        compose.onNodeWithTag("assistant_chat_input").assertTextContains("!t").assertIsFocused()
-        compose.runOnUiThread { assertEquals("!t", assistant.chat.draft) }
-        compose.onNodeWithTag("assistant_chat_input").performTextInput("!")
-        compose.runOnUiThread { assertEquals("!t!", assistant.chat.draft) }
-        compose.onNodeWithTag("assistant_chat_window").assertIsDisplayed()
+        compose.onNodeWithTag("assistant_chat_window").assertDoesNotExist()
+        compose.onNodeWithTag("magic_input").assertTextContains("t").assertIsFocused()
+        compose.runOnUiThread {
+            assertEquals(com.galaxyrio.gracelauncher.magic.MagicKind.Alarm, magic.session!!.kind)
+            assertEquals("t", magic.session!!.input.text)
+            assertEquals("", assistant.chat.draft)
+        }
     }
     @Test fun homeReturnRequestMinimizesWithoutSavingOrClearingButBackEndsSession() {
         compose.onNodeWithTag("assistant_chat_button").performClick()
@@ -100,7 +100,7 @@ class AssistantHomeKeyboardTest {
         compose.onNodeWithTag("assistant_chat_window").assertDoesNotExist()
         compose.onNodeWithTag("assistant_chat_button").performClick()
         compose.onNodeWithTag("assistant_chat_input").assertTextContains("unsent question")
-        compose.onNodeWithText("Earlier reply").assertIsDisplayed()
+        compose.onNodeWithText("Earlier reply").performScrollTo().assertIsDisplayed()
         compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
         compose.onNodeWithTag("assistant_chat_window").assertDoesNotExist()
         compose.runOnUiThread { assertTrue(assistant.chat.turns.isEmpty()); assertEquals("", assistant.chat.draft) }

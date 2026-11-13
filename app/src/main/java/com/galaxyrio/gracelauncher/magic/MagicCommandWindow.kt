@@ -260,10 +260,21 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
     val parsed = remember(s.input.text, language) {
         CalendarPhraseEngine.parse(CalendarParseRequest(s.input.text, eventTitle, language))
     }
+    val alarm = if (s.kind == MagicKind.Alarm) MagicAlarmCommand.parse(s.input.text, language) else null
     fun openCalendar(draft: CalendarDraft) { if (active() && s.claim()) handoff(actions.calendar(draft)) }
     val selectedIndex = if (s.kind == MagicKind.Note) s.selectedIndex else highlight
     val submit = {
         if (c.session === s && !s.consumed) when {
+            s.kind == MagicKind.Alarm -> {
+                val command = MagicAlarmCommand.parse(s.input.text, language)
+                if (command == null) s.status = resources.getString(R.string.magic_alarm_status_invalid)
+                else if (active() && s.claim()) {
+                    if (actions.alarm(command)) {
+                        Toast.makeText(context, if (command is MagicAlarmCommand.Alarm) R.string.magic_alarm_set else R.string.magic_timer_started, Toast.LENGTH_SHORT).show()
+                        c.close()
+                    } else handoff(false)
+                }
+            }
             s.kind == MagicKind.Todo || s.kind == MagicKind.Note -> {
                 val selectedRow = if (s.kind == MagicKind.Note && s.selectedNote == null) rows.getOrNull(s.selectedIndex) else null
                 if (selectedRow != null) selectedRow.choose()
@@ -341,6 +352,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
         MagicKind.Todo -> R.string.magic_todo_input
         MagicKind.Note -> if (s.selectedNote == null) R.string.magic_note_input else R.string.magic_note_append
         MagicKind.Event -> R.string.magic_event_input
+        MagicKind.Alarm -> R.string.magic_alarm_input
         else -> if (s.recipient != null || s.conversation != null) R.string.magic_message else R.string.magic_recipient
     })
 
@@ -357,7 +369,8 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                 true
             }
         }) {
-        BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(horizontal = 18.dp)) {
+        BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding()
+            .padding(start = 18.dp, end = 18.dp, bottom = 16.dp)) {
         // Keep a result row and the action visible above a tall IME; multiline drafts still scroll.
         val editorLines = if (maxHeight < 240.dp) 1 else 5
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -377,7 +390,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
             val unfocusedBorder = MaterialTheme.colorScheme.outlineVariant
             val hasAuxiliaryHeader = s.selectedNote != null || s.recipient != null || s.conversation != null ||
                 (s.kind.usesContacts && !contactsGranted && s.recipient == null && s.conversation == null) ||
-                (s.kind == MagicKind.Event && s.input.text.isNotBlank()) || s.status.isNotBlank()
+                (s.kind == MagicKind.Event && s.input.text.isNotBlank()) || alarm != null || s.status.isNotBlank()
             Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainer,
                 border = null,
                 modifier = Modifier.clip(RoundedCornerShape(28.dp)).drawWithContent {
@@ -417,6 +430,10 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                                 if (parsed is CalendarParseResult.NeedsReview || parsed is CalendarParseResult.Invalid || parsed.draft.warnings.isNotEmpty())
                                     Text(stringResource(R.string.magic_calendar_review), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                             }
+                            if (alarm != null) Text(when (alarm) {
+                                is MagicAlarmCommand.Alarm -> stringResource(R.string.magic_alarm_preview, alarm.hour, alarm.minute)
+                                is MagicAlarmCommand.Timer -> stringResource(R.string.magic_timer_preview, alarm.seconds / 60, alarm.seconds % 60)
+                            }, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("magic_alarm_preview"))
                             if (s.status.isNotBlank()) Text(s.status, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("magic_status"))
                         }
                     }

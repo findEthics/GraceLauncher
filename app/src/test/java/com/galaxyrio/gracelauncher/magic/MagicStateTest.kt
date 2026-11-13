@@ -14,6 +14,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MagicStateTest {
+    @Test fun titanAltIProducedMinusOpensTodoAndOwnsRepeatAndRelease() {
+        val controller = MagicController().apply { eligible = true }
+        assertTrue(controller.hardwareKey(android.view.KeyEvent.KEYCODE_I, 0, 0, android.view.KeyEvent.META_ALT_ON, '-'.code, false))
+        assertEquals(MagicKind.Todo, controller.session!!.kind)
+        assertTrue(controller.hardwareKey(android.view.KeyEvent.KEYCODE_I, 0, 1, android.view.KeyEvent.META_ALT_ON, '-'.code, true))
+        assertEquals("", controller.session!!.input.text)
+        assertTrue(controller.hardwareKey(android.view.KeyEvent.KEYCODE_I, 1, 0, android.view.KeyEvent.META_ALT_ON, '-'.code, true))
+    }
+
+    @Test fun bangIsAnIdleHomeOnlyNonContactMagicCommand() {
+        val controller = MagicController().apply { eligible = true }
+        val key = android.view.KeyEvent.KEYCODE_1
+        assertFalse(controller.hardwareKey(key, 0, 0, 0, '!'.code, true))
+        controller.eligible = false
+        assertFalse(controller.hardwareKey(key, 0, 0, 0, '!'.code, false))
+        controller.eligible = true
+        assertFalse(controller.hardwareKey(key, 0, 0, android.view.KeyEvent.META_CTRL_ON, '!'.code, false))
+        assertTrue(controller.hardwareKey(key, 0, 0, android.view.KeyEvent.META_SHIFT_ON, '!'.code, false))
+        assertEquals(MagicKind.Alarm, controller.session!!.kind)
+        assertFalse(controller.session!!.kind.usesContacts)
+    }
+
     @Test fun noteSelectionStartsUnhighlightedAndTypingAlwaysClearsHighlight() {
         val session = MagicSession(1, MagicKind.Note)
         assertEquals(-1, session.selectedIndex)

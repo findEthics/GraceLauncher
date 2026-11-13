@@ -103,6 +103,19 @@ class MagicHomeKeyboardTest {
         compose.runOnUiThread { assertNull(magic.session!!.recipient); assertEquals("", magic.session!!.input.text) }
     }
 
+    @Test fun alarmAndTimerPreviewAndInvalidInputStayLocalWithoutAssistant() {
+        compose.runOnUiThread { magic.open(MagicKind.Alarm) }
+        compose.onNodeWithTag("magic_input").performTextInput("alarm 7:30am")
+        compose.onNodeWithTag("magic_alarm_preview").assertTextEquals("Alarm · 07:30")
+        compose.onNodeWithTag("magic_input").performTextReplacement("timer 10m")
+        compose.onNodeWithTag("magic_alarm_preview").assertTextEquals("Timer · 10m 00s")
+        compose.onNodeWithTag("magic_input").performTextReplacement("not a command")
+        compose.onNodeWithTag("magic_alarm_preview").assertDoesNotExist()
+        compose.onNodeWithTag("magic_submit").performClick()
+        compose.onNodeWithTag("magic_status").assertTextEquals(compose.activity.getString(com.galaxyrio.gracelauncher.R.string.magic_alarm_status_invalid))
+        compose.runOnUiThread { assertFalse(assistant.chat.visible); assertFalse(magic.session!!.consumed) }
+    }
+
     @Test fun syncedPhoneSnapshotSelectsExactProviderAndPermissionLossFallsBackToConversations() {
         val pkg = "com.whatsapp"
         synthetic.contactSnapshots = mapOf(pkg to listOf(com.galaxyrio.gracelauncher.data.SearchContact(
