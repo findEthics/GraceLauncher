@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,7 +21,7 @@ import androidx.compose.ui.autofill.ContentDataType
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -32,7 +33,6 @@ import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -125,7 +125,6 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
             else if (s.status == resources.getString(R.string.notes_capture_unavailable)) s.status = ""
         }
     }
-    val focusManager = LocalFocusManager.current
     val inputModeManager = LocalInputModeManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     var highlight by remember(contactScope) { mutableIntStateOf(0) }
@@ -270,7 +269,9 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                 if (command == null) s.status = resources.getString(R.string.magic_alarm_status_invalid)
                 else if (active() && s.claim()) {
                     if (actions.alarm(command)) {
-                        Toast.makeText(context, if (command is MagicAlarmCommand.Alarm) R.string.magic_alarm_set else R.string.magic_timer_started, Toast.LENGTH_SHORT).show()
+                        if (command is MagicAlarmCommand.Timer) {
+                            Toast.makeText(context, R.string.magic_timer_started, Toast.LENGTH_SHORT).show()
+                        }
                         c.close()
                     } else handoff(false)
                 }
@@ -356,19 +357,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
         else -> if (s.recipient != null || s.conversation != null) R.string.magic_message else R.string.magic_recipient
     })
 
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = .45f)).testTag("magic_window")
-        .onPreviewKeyEvent { event ->
-            // Multiline text fields otherwise insert Tab instead of moving focus.
-            if (event.key != Key.Tab) false else {
-                if (event.type == KeyEventType.KeyDown) {
-                    // This preview handler runs before Compose's default keyboard traversal.
-                    // Buttons use SystemDefined focusability and are skipped in touch mode.
-                    inputModeManager.requestInputMode(InputMode.Keyboard)
-                    focusManager.moveFocus(if (event.isShiftPressed) FocusDirection.Previous else FocusDirection.Next)
-                }
-                true
-            }
-        }) {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = .45f)).testTag("magic_window")) {
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding()
             .padding(start = 18.dp, end = 18.dp, bottom = 16.dp)) {
         // Keep a result row and the action visible above a tall IME; multiline drafts still scroll.
@@ -377,9 +366,13 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
             LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("magic_results"), state = list,
                 verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.Bottom)) {
                 itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
-                    Surface(shape = RoundedCornerShape(20.dp), color = if (index == selectedIndex) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                    val rowColor by animateColorAsState(
+                        targetValue = if (index == selectedIndex) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                        label = "magic_row_color",
+                    )
+                    Surface(shape = RoundedCornerShape(20.dp), color = rowColor,
                         modifier = Modifier.fillMaxWidth().semantics { selected = index == selectedIndex }) {
-                        TextButton(onClick = row.choose, enabled = !s.consumed, modifier = Modifier.fillMaxWidth().testTag("magic_result:$index")) {
+                        TextButton(onClick = row.choose, enabled = !s.consumed, modifier = Modifier.fillMaxWidth().focusProperties { canFocus = false }.testTag("magic_result:$index")) {
                             Column(Modifier.fillMaxWidth()) { Text(row.label); if (row.detail.isNotBlank()) Text(row.detail, style = MaterialTheme.typography.bodySmall) }
                         }
                     }
@@ -438,7 +431,12 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                         }
                     }
                     MagicEditorInput(recipientSearch) {
-                        OutlinedTextField(value = s.input, onValueChange = { if (!s.consumed) s.input = it },
+                        OutlinedTextField(value = s.input, onValueChange = {
+                            if (!s.consumed) {
+                                if (isSingleNewlineInsertion(s.input.text, it.text)) submit()
+                                else s.input = it
+                            }
+                        },
                             modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged {
                                 inputFocused.value = it.isFocused
                                 if (it.isFocused) c.focused()
@@ -450,10 +448,31 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                                 }.testTag("magic_input")
                                 .onPreviewKeyEvent { event ->
                                     when (event.key) {
-                                        Key.Escape -> { if (event.type == KeyEventType.KeyDown) c.close(); true }
-                                        Key.DirectionDown, Key.DirectionUp -> if (rows.isEmpty()) false else {
-                                             if (event.type == KeyEventType.KeyDown) {
-                                                 val next = (selectedIndex + if (event.key == Key.DirectionDown) 1 else -1).coerceIn(0, rows.lastIndex)
+                                         Key.Escape -> { if (event.type == KeyEventType.KeyDown) c.close(); true }
+                                         Key.Tab -> {
+                                             if (event.type == KeyEventType.KeyDown && rows.isNotEmpty()) {
+                                                 if (s.kind == MagicKind.Note) {
+                                                     s.selectedIndex = if (event.isShiftPressed) {
+                                                         if (s.selectedIndex <= 0) rows.lastIndex else s.selectedIndex - 1
+                                                     } else {
+                                                         if (s.selectedIndex !in rows.indices) 0 else (s.selectedIndex + 1) % rows.size
+                                                     }
+                                                 } else {
+                                                     val current = highlight.coerceIn(0, rows.lastIndex)
+                                                     highlight = if (event.isShiftPressed) {
+                                                         if (current <= 0) rows.lastIndex else current - 1
+                                                     } else {
+                                                         (current + 1) % rows.size
+                                                     }
+                                                 }
+                                             }
+                                             true
+                                         }
+                                         Key.DirectionDown, Key.DirectionUp -> if (rows.isEmpty()) false else {
+                                              if (event.type == KeyEventType.KeyDown) {
+                                                  val next = if (s.kind == MagicKind.Note && s.selectedIndex == -1) {
+                                                      if (event.key == Key.DirectionDown) 0 else rows.lastIndex
+                                                  } else (selectedIndex + if (event.key == Key.DirectionDown) 1 else -1).coerceIn(0, rows.lastIndex)
                                                  if (s.kind == MagicKind.Note) s.selectedIndex = next else highlight = next
                                              }
                                             true
@@ -473,10 +492,9 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                                   disabledBorderColor = Color.Transparent,
                                   errorBorderColor = Color.Transparent,
                               ),
-                             prefix = { Text(s.kind.prefix.toString()) },
-                             placeholder = if (s.kind == MagicKind.Todo || s.kind == MagicKind.Note) ({ Text(inputDescription, maxLines = 1, overflow = TextOverflow.Ellipsis) }) else null,
+                              prefix = { Text(s.kind.displayPrefix) },
                              trailingIcon = {
-                                 TextButton(onClick = submit, enabled = !s.consumed && (s.input.text.isNotBlank() || (s.kind == MagicKind.Note && selectedIndex in rows.indices)), modifier = Modifier.testTag("magic_submit")) {
+                                  TextButton(onClick = submit, enabled = !s.consumed && (s.input.text.isNotBlank() || (s.kind == MagicKind.Note && selectedIndex in rows.indices)), modifier = Modifier.focusProperties { canFocus = false }.testTag("magic_submit")) {
                                      Text(stringResource(when {
                                          s.kind == MagicKind.Todo -> R.string.magic_save
                                          s.kind == MagicKind.Note -> if (s.selectedNote == null && selectedIndex in rows.indices) R.string.magic_select else R.string.magic_save

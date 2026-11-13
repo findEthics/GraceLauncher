@@ -584,7 +584,6 @@
     <string name="magic_event_input">Calendar event description</string>
     <string name="magic_alarm_input">Alarm or timer command</string>
     <string name="magic_alarm_status_invalid">Try: alarm 7:30am, wake me at 7, or timer 10m</string>
-    <string name="magic_alarm_set">Alarm set</string>
     <string name="magic_timer_started">Timer started</string>
     <string name="magic_alarm_preview">Alarm · %1$02d:%2$02d</string>
     <string name="magic_timer_preview">Timer · %1$dm %2$02ds</string>

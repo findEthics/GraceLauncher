@@ -693,40 +693,80 @@ class MagicHomeKeyboardTest {
         }
     }
 
-    @Test fun tabAndShiftTabTraverseComposerAndArrowsSelectWithoutDispatching() {
-        val recipient = "NoSuchMagicContact_${System.nanoTime()}"
-        openMessageComposer()
-        compose.onNodeWithTag("magic_input").performTextInput("$recipient message body")
-        waitForRawRecipient()
-        // Tab must also leave the editor after touch switches SystemDefined buttons out of focus traversal.
-        compose.onNodeWithTag("magic_input").performTouchInput { click() }
+    @Test fun tabAndShiftTabCycleResultsWithoutLeavingComposerAndEnterSelects() {
+        synthetic.noteSnapshot = listOf(
+            com.galaxyrio.gracelauncher.platform.SelectedNote(1, "First note"),
+            com.galaxyrio.gracelauncher.platform.SelectedNote(2, "Second note"),
+        )
+        synthetic.contactSnapshots = mapOf(null to listOf(
+            com.galaxyrio.gracelauncher.data.SearchContact(1, android.net.Uri.parse("content://synthetic/1"), "First contact", null, listOf("15550001")),
+            com.galaxyrio.gracelauncher.data.SearchContact(2, android.net.Uri.parse("content://synthetic/2"), "Second contact", null, listOf("15550002")),
+        ))
+        fun assertHighlight(index: Int) {
+            compose.onNodeWithTag("magic_input").assertIsFocused()
+            compose.onNodeWithTag("magic_result:$index").assertIsNotFocused().assert(hasAnyAncestor(isSelected()))
+            compose.onAllNodes(isSelected() and hasAnyAncestor(hasTestTag("magic_results"))).assertCountEquals(1)
+            compose.runOnUiThread {
+                if (magic.session!!.kind == MagicKind.Note) assertEquals(index, magic.session!!.selectedIndex)
+                assertEquals("", magic.session!!.input.text)
+            }
+        }
+        for (kind in listOf(MagicKind.Note, MagicKind.Message, MagicKind.Call)) {
+            for (enter in listOf<Key?>(Key.Enter, Key.NumPadEnter, null)) {
+                compose.runOnUiThread { magic.close(); magic.open(kind) }
+                compose.onNodeWithTag("magic_result:1").assertIsDisplayed()
+                // Touch mode must not change Tab behavior or transfer focus to a button.
+                compose.onNodeWithTag("magic_input").performTouchInput { click() }
+                if (kind == MagicKind.Note) {
+                    compose.onAllNodes(isSelected() and hasAnyAncestor(hasTestTag("magic_results"))).assertCountEquals(0)
+                    compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Tab) }
+                }
+                assertHighlight(0)
+                compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Tab) }
+                assertHighlight(1)
+                compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Tab) }
+                assertHighlight(0)
+                compose.onNodeWithTag("magic_input").performKeyInput { keyDown(Key.ShiftLeft); pressKey(Key.Tab); keyUp(Key.ShiftLeft) }
+                assertHighlight(1)
+                compose.onNodeWithTag("magic_input").performKeyInput { keyDown(Key.ShiftLeft); pressKey(Key.Tab); keyUp(Key.ShiftLeft) }
+                assertHighlight(0)
+                compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.DirectionDown) }
+                assertHighlight(1)
+                compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.DirectionUp) }
+                assertHighlight(0)
+                compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Tab) }
+                assertHighlight(1)
+                // Call selection intentionally opens a focused confirmation dialog, not an editor.
+                if (kind == MagicKind.Call) continue
+                if (enter == null) {
+                    // Emulate an IME text commit rather than a hardware Enter.
+                    compose.onNodeWithTag("magic_input").performTextInput("\n")
+                } else compose.onNodeWithTag("magic_input").performKeyInput { pressKey(enter) }
+                compose.onNodeWithTag("magic_input").assertIsFocused()
+                compose.runOnUiThread {
+                    if (kind == MagicKind.Note) assertEquals(2L, magic.session!!.selectedNote?.id)
+                    else assertEquals("15550002", magic.session!!.recipient?.address)
+                    assertEquals("", magic.session!!.input.text)
+                    assertFalse(magic.session!!.consumed)
+                    assertTrue(synthetic.saves.isEmpty())
+                }
+                compose.onNodeWithTag("magic_input").performKeyInput { keyDown(Key.ShiftLeft); pressKey(Key.Enter); keyUp(Key.ShiftLeft) }
+                compose.runOnUiThread { assertEquals("\n", magic.session!!.input.text); assertFalse(magic.session!!.consumed) }
+            }
+        }
+    }
+
+    @Test fun noteArrowUpFromNoSelectionHighlightsLastResult() {
+        synthetic.noteSnapshot = listOf(
+            com.galaxyrio.gracelauncher.platform.SelectedNote(1, "First note"),
+            com.galaxyrio.gracelauncher.platform.SelectedNote(2, "Second note"),
+        )
+        compose.runOnUiThread { magic.open(MagicKind.Note) }
+        compose.onNodeWithTag("magic_result:1").assertIsDisplayed()
+        compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.DirectionUp) }
         compose.onNodeWithTag("magic_input").assertIsFocused()
-        compose.onNodeWithTag("magic_submit").assertIsEnabled()
-        compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Tab) }
-        compose.waitUntil(5_000) {
-            compose.onAllNodes(hasTestTag("magic_submit") and isFocused()).fetchSemanticsNodes().isNotEmpty()
-        }
-        compose.runOnUiThread { assertEquals("$recipient message body", magic.session?.input?.text) }
-        compose.onNodeWithTag("magic_submit").assertIsFocused()
-        compose.onNodeWithTag("magic_submit").performKeyInput {
-            keyDown(Key.ShiftLeft)
-            pressKey(Key.Tab)
-            keyUp(Key.ShiftLeft)
-        }
-        compose.waitUntil(5_000) {
-            compose.onAllNodes(hasTestTag("magic_input") and isFocused()).fetchSemanticsNodes().isNotEmpty()
-        }
-        compose.runOnUiThread { assertEquals("$recipient message body", magic.session?.input?.text) }
-        compose.onNodeWithTag("magic_input").assertIsFocused().performKeyInput {
-            pressKey(Key.DirectionDown)
-            pressKey(Key.DirectionUp)
-            pressKey(Key.Enter)
-        }
-        compose.runOnUiThread {
-            assertEquals(recipient, magic.session?.recipient?.address)
-            assertEquals("message body", magic.session?.input?.text)
-            assertFalse(magic.session!!.consumed)
-        }
+        compose.onNodeWithTag("magic_result:1").assert(hasAnyAncestor(isSelected()))
+        compose.runOnUiThread { assertEquals(1, magic.session!!.selectedIndex); assertNull(magic.session!!.selectedNote) }
     }
 
     @Test fun escapeBackAndHomeClearDraftsAndDeferredSubmitState() {

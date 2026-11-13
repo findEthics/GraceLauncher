@@ -132,6 +132,9 @@ internal fun magicAlarmIntent(command: MagicAlarmCommand): Intent = when (comman
         putExtra(AlarmClock.EXTRA_HOUR, command.hour)
         putExtra(AlarmClock.EXTRA_MINUTES, command.minute)
         command.message?.takeIf { it.isNotBlank() }?.let { putExtra(AlarmClock.EXTRA_MESSAGE, it) }
+        putExtra(AlarmClock.EXTRA_SKIP_UI, true)
     }
-    is MagicAlarmCommand.Timer -> Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, command.seconds)
-}.putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+    is MagicAlarmCommand.Timer -> Intent(AlarmClock.ACTION_SET_TIMER)
+        .putExtra(AlarmClock.EXTRA_LENGTH, command.seconds)
+        .putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+}

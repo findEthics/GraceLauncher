@@ -16,10 +16,10 @@ class MagicAlarmIntentTest {
         assertFalse(magicAlarmIntent(MagicAlarmCommand.Alarm(19, 0)).hasExtra(AlarmClock.EXTRA_MESSAGE))
     }
 
-    @Test fun timerUsesSecondsAndSkipsUi() {
+    @Test fun timerUsesSecondsAndOpensClockUi() {
         val intent = magicAlarmIntent(MagicAlarmCommand.Timer(600))
         assertEquals(AlarmClock.ACTION_SET_TIMER, intent.action)
         assertEquals(600, intent.getIntExtra(AlarmClock.EXTRA_LENGTH, -1))
-        assertTrue(intent.getBooleanExtra(AlarmClock.EXTRA_SKIP_UI, false))
+        assertFalse(intent.getBooleanExtra(AlarmClock.EXTRA_SKIP_UI, true))
     }
 }

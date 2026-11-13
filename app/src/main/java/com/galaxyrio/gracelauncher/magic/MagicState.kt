@@ -10,9 +10,16 @@ import com.galaxyrio.gracelauncher.platform.SelectedNote
 import com.katoaapps.openminilaunch.model.CommunicationRecipient
 import com.katoaapps.openminilaunch.features.messaging.MessageDraft
 
-internal enum class MagicKind(val prefix: Char) {
-    Message('@'), Call('#'), Event('+'), Todo('('), Note(','), Alarm('!');
+internal enum class MagicKind(val prefix: Char, val displayPrefix: String) {
+    Message('@', "@"), Call('#', "📞"), Event('+', "📅"), Todo('(', "☑"), Note(',', "📝"), Alarm('!', "⏰");
     val usesContacts get() = this == Message || this == Call
+}
+
+internal fun isSingleNewlineInsertion(previous: String, updated: String): Boolean {
+    if (updated.length != previous.length + 1) return false
+    val prefixLen = previous.commonPrefixWith(updated).length
+    if (updated[prefixLen] != '\n') return false
+    return previous.substring(prefixLen) == updated.substring(prefixLen + 1)
 }
 
 internal class MagicSmsRequest(val draft: MessageDraft, val inferred: Boolean) {
