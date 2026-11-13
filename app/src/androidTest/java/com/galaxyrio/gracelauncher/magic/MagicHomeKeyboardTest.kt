@@ -529,8 +529,12 @@ class MagicHomeKeyboardTest {
         compose.runOnUiThread { assertEquals(1L, magic.session!!.selectedNote?.id); assertEquals("", magic.session!!.input.text) }
         compose.onNodeWithText("Packing list").assertIsDisplayed()
         val input = compose.onNodeWithTag("magic_input").fetchSemanticsNode().boundsInRoot
-        val save = compose.onNodeWithTag("magic_submit").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        assertTrue("Save must fit inside the editor", save.left >= input.left && save.right <= input.right && save.top >= input.top && save.bottom <= input.bottom)
+         val save = compose.onNodeWithTag("magic_submit").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+         assertTrue("Save must fit inside the editor", save.left >= input.left && save.right <= input.right && save.top >= input.top && save.bottom <= input.bottom)
+         val clear = compose.onNodeWithTag("magic_clear").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+         val tolerance = compose.activity.resources.displayMetrics.density * 2f
+         assertEquals("Clear and Save centers: $clear / $save", save.center.x, clear.center.x, tolerance)
+         assertEquals("Clear and Save right edges: $clear / $save", save.right, clear.right, tolerance)
         compose.onNodeWithText(compose.activity.getString(com.galaxyrio.gracelauncher.R.string.magic_clear)).performClick()
         compose.onNodeWithText("Packing list").assertIsDisplayed()
         compose.runOnUiThread { assertNull(magic.session!!.selectedNote); assertEquals(-1, magic.session!!.selectedIndex) }
@@ -553,10 +557,10 @@ class MagicHomeKeyboardTest {
         compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Enter) }
         compose.waitUntil(5_000) { magic.session == null }
         compose.onNodeWithTag("magic_window").assertDoesNotExist()
-        compose.onNodeWithTag("magic_saved_pill").assertIsDisplayed().assert(hasAnyDescendant(hasText("To-do added")))
+        compose.onNodeWithTag("magic_saved_pill").assertIsDisplayed().assert(hasAnyDescendant(hasText("✅ To-do added")))
         compose.runOnUiThread {
             assertEquals(listOf(Triple("Check-in", true, null)), synthetic.saves)
-            assertEquals(listOf("To-do added"), synthetic.toasts)
+            assertEquals(listOf("✅ To-do added"), synthetic.toasts)
         }
     }
 
@@ -569,10 +573,10 @@ class MagicHomeKeyboardTest {
         compose.onNodeWithTag("magic_submit").performClick()
         compose.waitUntil(5_000) { magic.session == null }
         compose.onNodeWithTag("magic_window").assertDoesNotExist()
-        compose.onNodeWithTag("magic_saved_pill").assertIsDisplayed().assert(hasAnyDescendant(hasText("Note added")))
+        compose.onNodeWithTag("magic_saved_pill").assertIsDisplayed().assert(hasAnyDescendant(hasText("📝 Note added")))
         compose.runOnUiThread {
             assertEquals(listOf(Triple("Packing", false, null)), synthetic.saves)
-            assertEquals(listOf("Note added"), synthetic.toasts)
+            assertEquals(listOf("📝 Note added"), synthetic.toasts)
         }
     }
 
@@ -585,10 +589,10 @@ class MagicHomeKeyboardTest {
         compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Enter) }
         compose.waitUntil(5_000) { magic.session == null }
         compose.onNodeWithTag("magic_window").assertDoesNotExist()
-        compose.onNodeWithTag("magic_saved_pill").assertIsDisplayed().assert(hasAnyDescendant(hasText("Note updated")))
+        compose.onNodeWithTag("magic_saved_pill").assertIsDisplayed().assert(hasAnyDescendant(hasText("📝 Note updated")))
         compose.runOnUiThread {
             assertEquals(listOf(Triple("Add sunscreen", false, 7L)), synthetic.saves)
-            assertEquals(listOf("Note updated"), synthetic.toasts)
+            assertEquals(listOf("📝 Note updated"), synthetic.toasts)
         }
     }
 

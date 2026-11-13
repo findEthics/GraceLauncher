@@ -60,6 +60,8 @@ android {
         // Keep reporting missing strings without blocking release builds.
         warning += "MissingTranslation"
     }
+    // These local tests fake Context/Bundle access, not Android framework behavior.
+    testOptions { unitTests.isReturnDefaultValues = true }
 }
 
 room {

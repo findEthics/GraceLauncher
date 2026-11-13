@@ -114,7 +114,7 @@ private fun MagicSavedPill(controller: MagicController) {
         Box(Modifier.graphicsLayer { this.alpha = alpha.value; translationY = offsetDp.value * density }
             .heightIn(min = 48.dp)
             .background(MaterialTheme.colorScheme.background, RoundedCornerShape(28.dp))
-            .border(1.5.dp, Color(0xFFEC5B2B), RoundedCornerShape(28.dp))
+             .border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(28.dp))
             .padding(horizontal = 24.dp, vertical = 10.dp)
             .semantics { liveRegion = LiveRegionMode.Polite }.testTag("magic_saved_pill"),
             contentAlignment = Alignment.Center) {
@@ -480,13 +480,14 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                 }) {
                 Column(Modifier.padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (hasAuxiliaryHeader) {
-                        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
+                         Column(Modifier.padding(start = 16.dp, end = if (s.selectedNote != null) 0.dp else 16.dp, top = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             if (s.selectedNote != null || s.recipient != null || s.conversation != null) {
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Text((s.selectedNote?.title ?: s.recipient?.displayName ?: s.conversation?.target?.label).orEmpty(),
                                         Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    if (s.selectedNote != null) TextButton(onClick = { s.chooseNote(null); focus.requestFocus() }, enabled = !s.consumed) {
+                                     if (s.selectedNote != null) TextButton(onClick = { s.chooseNote(null); focus.requestFocus() }, enabled = !s.consumed,
+                                         modifier = Modifier.widthIn(min = 64.dp).testTag("magic_clear")) {
                                         Text(stringResource(R.string.magic_clear))
                                     }
                                 }
@@ -560,7 +561,7 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                               ),
                               prefix = { Text(s.kind.displayPrefix) },
                              trailingIcon = {
-                                  TextButton(onClick = submit, enabled = !s.consumed && (s.input.text.isNotBlank() || (s.kind == MagicKind.Note && selectedIndex in rows.indices)), modifier = Modifier.focusProperties { canFocus = false }.testTag("magic_submit")) {
+                                   TextButton(onClick = submit, enabled = !s.consumed && (s.input.text.isNotBlank() || (s.kind == MagicKind.Note && selectedIndex in rows.indices)), modifier = Modifier.widthIn(min = 64.dp).focusProperties { canFocus = false }.testTag("magic_submit")) {
                                      Text(stringResource(when {
                                          s.kind == MagicKind.Todo -> R.string.magic_save
                                          s.kind == MagicKind.Note -> if (s.selectedNote == null && selectedIndex in rows.indices) R.string.magic_select else R.string.magic_save

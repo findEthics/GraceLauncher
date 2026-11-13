@@ -40,21 +40,21 @@ class MagicStateTest {
     @Test fun savedPillSurvivesCloseAndOnlyItsCurrentRevisionCanClearIt() {
         val controller = MagicController()
         controller.open(MagicKind.Todo)
-        controller.showSavedPill("To-do added")
+        controller.showSavedPill("✅ To-do added")
         val firstRevision = controller.pillRevision
         controller.close()
         assertNull(controller.session)
-        assertEquals("To-do added", controller.pillMessage)
+        assertEquals("✅ To-do added", controller.pillMessage)
         controller.open(MagicKind.Note)
-        controller.showSavedPill("Note added")
+        controller.showSavedPill("📝 Note added")
         assertEquals(firstRevision + 1, controller.pillRevision)
         controller.clearSavedPill(firstRevision)
-        assertEquals("Note added", controller.pillMessage)
+        assertEquals("📝 Note added", controller.pillMessage)
         val revision = controller.pillRevision
-        controller.showSavedPill("Note added")
+        controller.showSavedPill("📝 Note added")
         assertEquals(revision + 1, controller.pillRevision)
         controller.clearSavedPill(revision)
-        assertEquals("Note added", controller.pillMessage)
+        assertEquals("📝 Note added", controller.pillMessage)
         controller.clearSavedPill(controller.pillRevision)
         assertNull(controller.pillMessage)
     }
