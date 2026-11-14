@@ -201,10 +201,12 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
     }
     fun openProvider(pkg: String?) {
         val recipient = s.recipient ?: return
-        if (!active() || !s.claim()) return
+        if (!(active() || (c.fakeMessageDraft != null && c.session === s && !s.consumed)) || !s.claim()) return
         providerPicker = false
-        val result = actions.messaging.openPreferredMessageDraft(recipient, s.input.text, pkg,
-            allowSmsFallback = strictProvider == null || pkg != strictProvider)
+        val allowSmsFallback = strictProvider == null || pkg != strictProvider
+        val result = if (contactsSource.externalActionsAllowed) actions.messaging.openPreferredMessageDraft(recipient, s.input.text, pkg,
+            allowSmsFallback = allowSmsFallback)
+        else c.fakeMessageDraft!!.invoke(recipient, s.input.text, pkg, allowSmsFallback)
         handoff(result != PreferredMessageDraftResult.FAILED)
         s.status = resources.getString(when (result) {
             PreferredMessageDraftResult.OPENED -> R.string.magic_draft_retained
@@ -263,11 +265,16 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
     val contactRows = contacts.orEmpty().flatMap { contact -> contact.dialNumbers.map { number ->
         ContactResult(contact.uri.toString(), contact.name, number, number)
     } }
-    fun chooseRecipient(recipient: CommunicationRecipient, pkg: String? = null, inferred: Boolean = false) {
+    fun chooseRecipient(recipient: CommunicationRecipient, pkg: String? = null, inferred: Boolean = false, openEmptyChat: Boolean = false) {
         if (s.kind == MagicKind.Call) {
             if (recipient.address.looksLikePhoneRecipient()) callConfirmation = recipient
             else if (active() && s.claim()) { handoff(actions.call(recipient.address, chooser = true)) }
-        } else { s.choose(recipient, pkg, inferred); highlight = 0; if (!inputFocused.value) focus.requestFocus() }
+        } else {
+            s.choose(recipient, pkg, inferred)
+            highlight = 0
+            if (openEmptyChat && s.input.text.isBlank()) openProvider(pkg ?: prefs.provider)
+            if (!inputFocused.value) focus.requestFocus()
+        }
     }
     fun chooseConversation(conversation: MagicConversation) {
         if (!contactsSource.conversationEligible(conversation)) { s.status = resources.getString(R.string.magic_conversation_unavailable); return }
@@ -303,12 +310,12 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
             val query = SearchQuery(s.query, fuzzy = false)
             contacts.orEmpty().filter { s.query.isBlank() || it.score(query) != null }.take(5).forEach { contact ->
                 contact.dialNumbers.forEach { number ->
-                    add(MagicRow("${contact.id}:$number", contact.name, number) { chooseRecipient(CommunicationRecipient(number, contact.name, number), strictProvider) })
+                    add(MagicRow("${contact.id}:$number", contact.name, number) { chooseRecipient(CommunicationRecipient(number, contact.name, number), strictProvider, openEmptyChat = true) })
                 }
             }
             if (s.query.isNotBlank() && allowRawMagicRecipient(s.kind, prefs.provider)) add(MagicRow("raw", s.query, resources.getString(R.string.magic_raw_recipient)) { chooseRecipient(userEnteredRecipient(s.query)) })
         }
-    }
+    }.let { if (s.kind == MagicKind.Message && s.input.text.isBlank()) it.take(5) else it }
     val cycleSelection: (Boolean) -> Unit = { backward ->
         if (rows.isNotEmpty()) {
             if (s.kind == MagicKind.Note) {

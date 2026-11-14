@@ -59,6 +59,17 @@ class MagicStateTest {
         assertNull(controller.pillMessage)
     }
 
+    @Test fun emptyContactSelectionRetainsRecipientAndCannotRequestDirectSms() {
+        val session = MagicSession(1, MagicKind.Message)
+        session.input = TextFieldValue("Alex")
+        val recipient = CommunicationRecipient("+15551234567", "Alex", "+15551234567")
+        session.choose(recipient, "com.whatsapp")
+        assertEquals(recipient, session.recipient)
+        assertEquals("com.whatsapp", session.providerPackage)
+        assertEquals("", session.input.text)
+        assertNull(session.requestSms())
+    }
+
     @Test fun preFocusTabBuffersDirectionsIgnoresRepeatsAndOwnsRelease() {
         for (kind in listOf(MagicKind.Note, MagicKind.Message, MagicKind.Call)) {
             val controller = MagicController()

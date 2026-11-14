@@ -175,7 +175,7 @@ internal class MessagingDeviceActions(
                 integratedPackage,
                 forcedRecipient = recipient.userEntered,
             ).firstOrNull { route ->
-                canResolve(route.intent) && startActivity(route.intent, false)
+                (body.isNotBlank() || route.carriesRecipient) && canResolve(route.intent) && startActivity(route.intent, false)
             }
             if (openedRoute != null) {
                 return if (openedRoute.carriesRecipient) {
@@ -184,6 +184,11 @@ internal class MessagingDeviceActions(
                     PreferredMessageDraftResult.OPENED_WITH_RECIPIENT_PICKER
                 }
             }
+        }
+        // Empty shares are ignored by some providers; let the user choose a recipient in-app.
+        if (body.isBlank()) {
+            val picker = context.packageManager.getLaunchIntentForPackage(integratedPackage)
+            if (picker != null && startActivity(picker, false)) return PreferredMessageDraftResult.OPENED_WITH_RECIPIENT_PICKER
         }
         if (!allowSmsFallback) return PreferredMessageDraftResult.FAILED
         return defaultMessageDraftResult(

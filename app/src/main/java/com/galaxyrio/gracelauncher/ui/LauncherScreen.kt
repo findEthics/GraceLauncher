@@ -563,9 +563,15 @@ internal fun LauncherScreen(
     val haptics = rememberLauncherHaptics(uiState.settings.allowHapticFeedback)
     val searching = overlay == LauncherOverlay.Search
     val searchAlpha by animateFloatAsState(if (searching) 1f else 0f, tween(210), label = "searchFade")
+    val savedPillVisible = magic?.pillMessage != null
+    val homeReturnAlpha = remember { Animatable(if (savedPillVisible) 0f else 1f) }
+    LaunchedEffect(savedPillVisible) {
+        if (savedPillVisible) homeReturnAlpha.snapTo(0f)
+        else homeReturnAlpha.animateTo(1f, tween(220))
+    }
     val isSettings = overlay == LauncherOverlay.Settings || overlay is LauncherOverlay.FolderSettings ||
         overlay is LauncherOverlay.SettingsDestination || overlay is LauncherOverlay.IconDesigner
-    val fullScreen = magic?.session != null || assistant?.chat?.visible == true || isSettings || overlay == LauncherOverlay.Search || overlay == LauncherOverlay.Favorites ||
+    val fullScreen = savedPillVisible || magic?.session != null || assistant?.chat?.visible == true || isSettings || overlay == LauncherOverlay.Search || overlay == LauncherOverlay.Favorites ||
         overlay is LauncherOverlay.IconDesigner || overlay is LauncherOverlay.EditPopup
     val privateAppEditing = when (val current = overlay) {
         is LauncherOverlay.AppDetails -> current.app.isPrivateSpace
@@ -798,9 +804,9 @@ internal fun LauncherScreen(
                 onLockScreen = actions.lockScreen,
                 onLockUnavailable = lockScreenUnavailable,
             )
-            .retainedPage(visible = !fullScreen || isSettings || backProgress.value > 0f)
+            .retainedPage(visible = !savedPillVisible && (!fullScreen || isSettings || backProgress.value > 0f))
             .then(if (fullScreen || backProgress.value > 0f) Modifier.clearAndSetSemantics {} else Modifier)
-            .graphicsLayer { alpha = if (searching) backProgress.value else 1f }
+            .graphicsLayer { alpha = (if (searching) backProgress.value else 1f) * homeReturnAlpha.value }
             .background(homeScrim)
             // The lists extend behind both system bars. Insets belong to their
             // scrollable content, not a parent that clips the whole viewport.

@@ -120,6 +120,7 @@ internal class MagicController {
     var dataSource: MagicDataSource? = null
     var fakeCall: ((String, Boolean) -> Boolean)? = null
     var fakeCallPermission = false
+    var fakeMessageDraft: ((CommunicationRecipient, String, String?, Boolean) -> com.katoaapps.openminilaunch.features.messaging.PreferredMessageDraftResult)? = null
     var eligible = false
     private var generation = 0L
     internal val keys = MagicKeySequence()

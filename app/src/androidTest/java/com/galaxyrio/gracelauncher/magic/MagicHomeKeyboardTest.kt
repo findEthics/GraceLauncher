@@ -64,6 +64,7 @@ class MagicHomeKeyboardTest {
             magic.clearSavedPill(magic.pillRevision)
             magic.fakeCall = null
             magic.fakeCallPermission = false
+            magic.fakeMessageDraft = null
             magic.dataSource = originalSource
             messagingPreferences.edit().apply {
                 for ((key, value) in originalMessaging) when (value) {
@@ -103,6 +104,102 @@ class MagicHomeKeyboardTest {
         compose.onNodeWithText("Business fixture").assertExists()
         compose.onNodeWithText("WA fixture").assertDoesNotExist()
         compose.runOnUiThread { assertNull(magic.session!!.recipient); assertEquals("", magic.session!!.input.text) }
+    }
+
+    @Test fun emptyMessageSuggestionsCapCombinedExpandedRowsButTypedQueriesDoNot() {
+        synthetic.conversationSnapshot = (1..3).map { id -> MagicConversation(
+            com.katoaapps.openminilaunch.model.LauncherShortcutTarget("Alex chat $id", "sms.app", "$id", 0, false),
+            com.galaxyrio.gracelauncher.data.LauncherShortcut("$id", "sms.app", "Alex chat $id", null), emptySet()) }
+        synthetic.contactSnapshots = mapOf(null to (1..5).map { id ->
+            com.galaxyrio.gracelauncher.data.SearchContact(id.toLong(), android.net.Uri.parse("content://synthetic/$id"), "Alex $id", null,
+                listOf("1555000$id", "1555001$id")) })
+        compose.runOnUiThread { magic.open(MagicKind.Message) }
+        compose.onNodeWithTag("magic_results").performScrollToIndex(4)
+        compose.onNodeWithTag("magic_result:4").assertExists()
+        compose.onNodeWithTag("magic_result:5").assertDoesNotExist()
+        compose.onNodeWithTag("magic_input").performTextInput("Alex")
+        compose.onNodeWithTag("magic_results").performScrollToIndex(12)
+        compose.onNodeWithTag("magic_result:12").assertExists()
+    }
+
+    @Test fun emptyContactEnterOpensSelectedProviderOnceWithoutSmsFallbackAndFailureRetainsRecipient() {
+        val pkg = "com.whatsapp"
+        synthetic.contactSnapshots = mapOf(pkg to listOf(com.galaxyrio.gracelauncher.data.SearchContact(
+            1, android.net.Uri.parse("content://synthetic/1"), "New contact", null, listOf("+15551234567"))))
+        val drafts = mutableListOf<String>()
+        compose.runOnUiThread {
+            messagingPreferences.edit().putString("provider", pkg).putBoolean("automatic", true).commit()
+            magic.fakeMessageDraft = { recipient, body, provider, fallback ->
+                assertEquals("+15551234567", recipient.address)
+                assertEquals("", body)
+                assertEquals(pkg, provider)
+                assertFalse(fallback)
+                drafts.add(provider!!)
+                com.katoaapps.openminilaunch.features.messaging.PreferredMessageDraftResult.FAILED
+            }
+            magic.open(MagicKind.Message)
+        }
+        compose.onNodeWithTag("magic_input").performTextInput("New")
+        compose.onNodeWithTag("magic_result:0").assertExists()
+        compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Enter) }
+        compose.runOnUiThread {
+            assertEquals(listOf(pkg), drafts)
+            assertEquals("+15551234567", magic.session!!.recipient!!.address)
+            assertFalse(magic.session!!.consumed)
+            assertFalse(magic.session!!.handedOff)
+            assertNull(magic.session!!.requestSms())
+        }
+        compose.onNodeWithTag("magic_status").assertTextEquals(compose.activity.getString(com.galaxyrio.gracelauncher.R.string.magic_no_app))
+        compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Escape) }
+        compose.waitUntil(5_000) { magic.eligible }
+        compose.runOnUiThread {
+            magic.fakeMessageDraft = { _, _, _, _ -> drafts.add(pkg); com.katoaapps.openminilaunch.features.messaging.PreferredMessageDraftResult.OPENED_WITH_RECIPIENT_PICKER }
+            magic.open(MagicKind.Message)
+        }
+        compose.onNodeWithTag("magic_result:0").assertExists()
+        compose.onNodeWithTag("magic_input").performKeyInput { pressKey(Key.Enter); pressKey(Key.Enter) }
+        compose.runOnUiThread { assertEquals(2, drafts.size); assertTrue(magic.session!!.handedOff); assertTrue(magic.session!!.consumed) }
+        compose.onNodeWithTag("magic_status").assertTextEquals(compose.activity.getString(com.galaxyrio.gracelauncher.R.string.magic_reselect_recipient))
+    }
+
+    @Test fun savedPillKeepsHomeUnplacedUntilExitAndRestoresAfterCancellation() {
+        compose.mainClock.autoAdvance = false
+        compose.runOnUiThread { magic.showSavedPill("✅ To-do added"); magic.close() }
+        compose.mainClock.advanceTimeBy(32)
+        compose.onNodeWithTag("home_gesture_surface").assertIsNotDisplayed()
+        compose.mainClock.advanceTimeBy(250)
+        compose.mainClock.advanceTimeBy(1100)
+        compose.onNodeWithTag("home_gesture_surface").assertIsNotDisplayed()
+        compose.runOnUiThread { assertNotNull(magic.pillMessage) }
+        compose.mainClock.advanceTimeUntil(5_000) { magic.pillMessage == null }
+        compose.runOnUiThread { assertNull(magic.pillMessage) }
+        compose.mainClock.advanceTimeBy(300)
+        compose.onNodeWithTag("home_gesture_surface").assertIsDisplayed()
+        compose.runOnUiThread { magic.open(MagicKind.Todo); magic.close() }
+        compose.mainClock.advanceTimeBy(32)
+        compose.onNodeWithTag("home_gesture_surface").assertIsDisplayed()
+        compose.mainClock.autoAdvance = true
+    }
+
+    @Test fun savedPillVisualFramesWhenRequested() {
+        val instrument = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        org.junit.Assume.assumeTrue(androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("captureMagicFrames") == "true")
+        compose.runOnUiThread { magic.open(MagicKind.Todo) }
+        compose.onNodeWithTag("magic_input").performTextInput("Visual fixture")
+        compose.mainClock.autoAdvance = false
+        compose.runOnUiThread { magic.onSubmit!!.invoke() }
+        val directory = java.io.File(compose.activity.getExternalFilesDir(null), "magic-refine").apply { mkdirs() }
+        var previous = 0L
+        for (time in listOf(0L, 300L, 1200L, 1550L, 1700L, 1740L, 1780L, 1820L, 1860L, 2000L)) {
+            compose.mainClock.advanceTimeBy((time - previous).coerceAtLeast(1))
+            previous = time
+            compose.waitForIdle()
+            val bitmap = instrument.uiAutomation.takeScreenshot()
+            try {
+                java.io.File(directory, "pill-$time.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            } finally { bitmap.recycle() }
+        }
+        compose.mainClock.autoAdvance = true
     }
 
     @Test fun alarmAndTimerPreviewAndInvalidInputStayLocalWithoutAssistant() {
