@@ -12,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -23,6 +24,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -71,7 +74,7 @@ import kotlinx.coroutines.withContext
 internal enum class SettingsPage {
     Root, Productivity, Clock, ClockStyle, Calendar, Weather, Themes, Advanced, About, HiddenApps, Folders, FolderEditor,
     Changelog, Licenses, AppLicense, IconPacks, IconDesigner, IconDesignerApp, PrivateSpace, PrivateSpaceEditor, Search,
-    MediaPlayer,
+    MediaPlayer, OfflineAssistant, KeyboardShortcuts,
 }
 
 /** Navigation owns each page's saved state and seekable predictive-back transition. */
@@ -206,7 +209,25 @@ fun LauncherSettingsScreen(
                     )
                     SettingsPage.Calendar -> CalendarSettings(uiState, actions, back)
                     SettingsPage.Advanced -> SettingsScaffold(stringResource(R.string.settings_advanced), "settings_advanced", back) { padding ->
+                        SettingsList(padding) {
+                            item {
+                                SettingsActionItem(stringResource(R.string.assistant_title), null, 0, 2,
+                                    tag = "settings_offline_assistant") { navigate(SettingsPage.OfflineAssistant) }
+                            }
+                            item {
+                                SettingsActionItem(stringResource(R.string.settings_keyboard_shortcuts), null, 1, 2,
+                                    tag = "settings_keyboard_shortcuts") { navigate(SettingsPage.KeyboardShortcuts) }
+                            }
+                        }
+                    }
+                    SettingsPage.OfflineAssistant -> SettingsScaffold(stringResource(R.string.assistant_title), "settings_offline_assistant_page", back) { padding ->
                         com.galaxyrio.gracelauncher.assistant.AssistantSettings(Modifier.fillMaxSize().padding(padding))
+                    }
+                    SettingsPage.KeyboardShortcuts -> SettingsScaffold(stringResource(R.string.settings_keyboard_shortcuts), "settings_keyboard_shortcuts_page", back) { padding ->
+                        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(24.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            com.galaxyrio.gracelauncher.magic.MagicAdvancedSettings()
+                        }
                     }
                     SettingsPage.About -> AboutSettings(back, navigate)
                     SettingsPage.HiddenApps -> HiddenAppsSettings(uiState, actions, back)

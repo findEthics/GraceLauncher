@@ -14,9 +14,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MagicStateTest {
+    @Test fun callEnterSubmitsBeforeFocusedEditorAndOwnsRepeatAndRelease() {
+        for (key in listOf(android.view.KeyEvent.KEYCODE_ENTER, android.view.KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+            val controller = MagicController()
+            controller.open(MagicKind.Call)
+            controller.focused()
+            var calls = 0
+            controller.onSubmit = { calls++; controller.close() }
+            assertTrue(controller.hardwareKey(key, android.view.KeyEvent.ACTION_DOWN, 0, 0, 0, true))
+            assertEquals(1, calls)
+            assertTrue(controller.hardwareKey(key, android.view.KeyEvent.ACTION_DOWN, 1, 0, 0, true))
+            assertTrue(controller.hardwareKey(key, android.view.KeyEvent.ACTION_UP, 0, 0, 0, true))
+            assertEquals(1, calls)
+        }
+    }
+
     @Test fun displayPrefixesKeepTriggerCharactersSeparate() {
         assertEquals(listOf("@", "📞", "📅", "✅", "📝", "⏰"), MagicKind.entries.map { it.displayPrefix })
-        assertEquals(listOf('@', '#', '+', '(', ',', '!'), MagicKind.entries.map { it.prefix })
+        assertEquals(listOf('@', '#', '+', '-', ',', '!'), MagicKind.entries.map { it.prefix })
     }
 
     @Test fun singleNewlineInsertionAcceptsOnlyOneInsertedNewline() {
@@ -110,7 +125,7 @@ class MagicStateTest {
         assertTrue(controller.hardwareKey(android.view.KeyEvent.KEYCODE_I, 1, 0, android.view.KeyEvent.META_ALT_ON, '-'.code, true))
     }
 
-    @Test fun reopeningBuffersTabButLeavesTextAndEnterToFocusedEditor() {
+    @Test fun reopeningBuffersTabAndCallEnterButLeavesTextToFocusedEditor() {
         for (kind in listOf(MagicKind.Note, MagicKind.Message, MagicKind.Call)) {
             val controller = MagicController()
             controller.open(kind)
@@ -127,8 +142,9 @@ class MagicStateTest {
             assertTrue(controller.hardwareKey(android.view.KeyEvent.KEYCODE_TAB, 0, 0,
                 android.view.KeyEvent.META_SHIFT_ON, '\t'.code, true))
             assertEquals(-1, controller.pendingCycle)
-            assertFalse(controller.hardwareKey(android.view.KeyEvent.KEYCODE_ENTER, 0, 0, 0, '\n'.code, true))
-            assertFalse(controller.submitPending)
+            assertEquals(kind == MagicKind.Call,
+                controller.hardwareKey(android.view.KeyEvent.KEYCODE_ENTER, 0, 0, 0, '\n'.code, true))
+            assertEquals(kind == MagicKind.Call, controller.submitPending)
             assertFalse(controller.hardwareKey(android.view.KeyEvent.KEYCODE_W, 0, 0, 0, 'w'.code, true))
             assertEquals("", controller.session!!.input.text)
             controller.focused()
@@ -144,7 +160,6 @@ class MagicStateTest {
             for ((key, meta, character) in listOf(
                 Triple(android.view.KeyEvent.KEYCODE_MINUS, 0, '-'),
                 Triple(android.view.KeyEvent.KEYCODE_COMMA, 0, ','),
-                Triple(android.view.KeyEvent.KEYCODE_9, android.view.KeyEvent.META_SHIFT_ON, '('),
             )) {
                 assertFalse(controller.hardwareKey(key, 0, 0, meta, character.code, editorFocused))
             }
@@ -214,6 +229,15 @@ class MagicStateTest {
             assertEquals("keep draft", session.input.text)
             assertFalse(kind.usesContacts)
         }
+    }
+
+    @Test fun parenthesisDoesNotOpenMagicAndIsBufferedAsOrdinaryText() {
+        val controller = MagicController().apply { eligible = true }
+        assertFalse(controller.hardwareKey(android.view.KeyEvent.KEYCODE_9, 0, 0, android.view.KeyEvent.META_SHIFT_ON, '('.code, false))
+        assertNull(controller.session)
+        controller.open(MagicKind.Todo)
+        assertTrue(controller.hardwareKey(android.view.KeyEvent.KEYCODE_9, 0, 0, android.view.KeyEvent.META_SHIFT_ON, '('.code, false))
+        assertEquals("(", controller.session!!.input.text)
     }
 
     private val recipient = CommunicationRecipient("+15551234567", "Alex", "+15551234567")

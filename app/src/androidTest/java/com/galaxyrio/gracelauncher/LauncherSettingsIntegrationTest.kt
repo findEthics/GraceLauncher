@@ -165,7 +165,22 @@ class LauncherSettingsIntegrationTest {
             clickSetting("settings_root", "settings_category_$category")
             compose.onNodeWithTag("settings_$category").assertIsDisplayed()
             compose.onNodeWithTag("launcher_sheet").assertDoesNotExist()
-            if (category != "advanced") saveScreenshot("settings-$category.png")
+            if (category == "advanced") {
+                compose.onNodeWithTag("assistant_model_Gemma4").assertDoesNotExist()
+                compose.onNodeWithText(InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.magic_help)).assertDoesNotExist()
+                clickSetting("settings_advanced", "settings_offline_assistant")
+                compose.onNodeWithTag("settings_offline_assistant_page").assertIsDisplayed()
+                compose.onNodeWithTag("assistant_model_Gemma4").assertExists()
+                compose.onNodeWithText(InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.magic_help)).assertDoesNotExist()
+                settingsBack()
+                compose.onNodeWithTag("settings_advanced").assertIsDisplayed()
+                clickSetting("settings_advanced", "settings_keyboard_shortcuts")
+                compose.onNodeWithTag("settings_keyboard_shortcuts_page").assertIsDisplayed()
+                compose.onNodeWithText(InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.magic_help)).assertExists()
+                compose.onNodeWithTag("assistant_model_Gemma4").assertDoesNotExist()
+                settingsBack()
+                compose.onNodeWithTag("settings_advanced").assertIsDisplayed()
+            } else saveScreenshot("settings-$category.png")
             settingsBack()
             compose.onNodeWithTag("settings_root").assertIsDisplayed()
         }
@@ -211,7 +226,7 @@ class LauncherSettingsIntegrationTest {
     }
 
     @Test
-    fun disablingCalendarWithoutWeatherRemovesTheDateAndAgenda() {
+    fun disablingCalendarWithoutWeatherRemovesAgendaButKeepsDateAndBattery() {
         val now = Instant.now()
         showLauncher(fixture().copy(events = listOf(
             ScheduleEvent(1, "Movie night", now.plusSeconds(1800), now.plusSeconds(7200), false, null, null),
@@ -228,7 +243,8 @@ class LauncherSettingsIntegrationTest {
 
         compose.onNodeWithTag("home_clock").assertIsDisplayed()
         compose.onNodeWithTag("schedule_line").assertDoesNotExist()
-        compose.onNodeWithTag("home_date").assertDoesNotExist()
+        compose.onNodeWithTag("home_date_text", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("home_date_battery_text", useUnmergedTree = true).assertIsDisplayed()
     }
 
     @Test
@@ -247,7 +263,8 @@ class LauncherSettingsIntegrationTest {
         settingsBack()
 
         compose.onNodeWithTag("home_clock").assertIsDisplayed()
-        val date = compose.onNodeWithTag("home_date").fetchSemanticsNode()
+        compose.onNodeWithTag("home_date_battery_text", useUnmergedTree = true).assertDoesNotExist()
+        val date = compose.onNodeWithTag("home_date_text", useUnmergedTree = true).fetchSemanticsNode()
             .config[SemanticsProperties.Text].joinToString { it.text }
         assertFalse("The disabled battery display must leave the date intact", date.contains('%'))
         assertTrue(date.isNotBlank())

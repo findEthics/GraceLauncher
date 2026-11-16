@@ -200,8 +200,6 @@ fun AssistantSettings(modifier: Modifier = Modifier) {
     DisposableEffect(assistant) { onDispose { assistant.close() } }
     val homeButtonDescription = stringResource(R.string.assistant_show_home_button)
     Column(modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        com.galaxyrio.gracelauncher.magic.MagicAdvancedSettings()
-        HorizontalDivider()
         Text(stringResource(R.string.assistant_title), style = MaterialTheme.typography.titleLarge)
         Text(stringResource(R.string.assistant_privacy), style = MaterialTheme.typography.bodyMedium)
         Row(verticalAlignment = Alignment.CenterVertically) {

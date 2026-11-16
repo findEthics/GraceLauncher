@@ -34,15 +34,12 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -180,12 +177,10 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
             notes = emptyList()
         }
     }
-    val inputModeManager = LocalInputModeManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     var highlight by remember(contactScope) { mutableIntStateOf(0) }
     val list = rememberLazyListState()
     var providerPicker by remember(contactScope) { mutableStateOf(false) }
-    var callConfirmation by remember(contactScope) { mutableStateOf<CommunicationRecipient?>(null) }
     var pendingCall by remember(contactScope) { mutableStateOf<CommunicationRecipient?>(null) }
     var pendingSms by remember(contactScope) { mutableStateOf<MagicSmsRequest?>(null) }
     var smsConfirmation by remember(contactScope) { mutableStateOf<MagicSmsRequest?>(null) }
@@ -193,8 +188,8 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
     var calendarReview by remember { mutableStateOf<CalendarDraft?>(null) }
     fun active() = contactsSource.externalActionsAllowed && c.session === s && !s.consumed
     fun activeCall() = (contactsSource.externalActionsAllowed || c.fakeCall != null) && c.session === s && !s.consumed
-    fun call(phone: String, chooser: Boolean = false) = if (contactsSource.externalActionsAllowed)
-        actions.call(phone, chooser) else c.fakeCall?.invoke(phone, chooser) == true
+    fun call(phone: String) = if (contactsSource.externalActionsAllowed)
+        actions.call(phone) else c.fakeCall?.invoke(phone, false) == true
     fun handoff(opened: Boolean) {
         s.handedOff = opened
         if (!opened) { s.consumed = false; s.status = resources.getString(R.string.magic_no_app) }
@@ -250,13 +245,12 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
         else sendDirect(request)
     }
     fun placeCall(recipient: CommunicationRecipient) {
-        if (activeCall() && s.claim()) { if (call(recipient.address)) c.close() else handoff(false) }
+        if (c.session === s && s.consumed) { if (call(recipient.address)) c.close() else handoff(false) }
     }
-    val callPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    val callPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         val recipient = pendingCall; pendingCall = null
-        if (active() && recipient != null) {
-            if (granted) placeCall(recipient) else s.status = resources.getString(R.string.magic_permission_denied)
-        }
+        // call() rechecks permission and falls back to the default dialer after denial.
+        if (recipient != null) placeCall(recipient)
     }
     val contactPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         contactsGranted = contactsSource.hasContactAccess()
@@ -267,8 +261,14 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
     } }
     fun chooseRecipient(recipient: CommunicationRecipient, pkg: String? = null, inferred: Boolean = false, openEmptyChat: Boolean = false) {
         if (s.kind == MagicKind.Call) {
-            if (recipient.address.looksLikePhoneRecipient()) callConfirmation = recipient
-            else if (active() && s.claim()) { handoff(actions.call(recipient.address, chooser = true)) }
+            if (activeCall() && s.claim()) {
+                if (contactsSource.externalActionsAllowed && actions.supportsDirectCall(recipient.address) &&
+                    !actions.hasPermission(Manifest.permission.CALL_PHONE)) {
+                    pendingCall = recipient
+                    try { callPermission.launch(Manifest.permission.CALL_PHONE) }
+                    catch (_: RuntimeException) { pendingCall = null; placeCall(recipient) }
+                } else placeCall(recipient)
+            }
         } else {
             s.choose(recipient, pkg, inferred)
             highlight = 0
@@ -585,50 +585,6 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
         }
     }
     if (providerPicker) MagicProviderDialog(actions, onDismiss = { providerPicker = false }, onChoose = { openProvider(it.preferencePackageName) })
-    callConfirmation?.let { recipient ->
-        val callFocus = remember(recipient) { FocusRequester() }
-        var callKeyDown by remember(recipient) { mutableStateOf<Key?>(null) }
-        fun dismissCall() { callKeyDown = null; callConfirmation = null }
-        fun confirmCall() {
-            dismissCall()
-            if (activeCall()) {
-                if (if (contactsSource.externalActionsAllowed) actions.hasPermission(Manifest.permission.CALL_PHONE) else c.fakeCallPermission) placeCall(recipient)
-                else if (contactsSource.externalActionsAllowed) { pendingCall = recipient; callPermission.launch(Manifest.permission.CALL_PHONE) }
-            }
-        }
-        LaunchedEffect(recipient) { inputModeManager.requestInputMode(InputMode.Keyboard); callFocus.requestFocus() }
-        AlertDialog(onDismissRequest = ::dismissCall, title = {
-            val view = LocalView.current
-            DisposableEffect(view) {
-                 val listener = android.view.ViewTreeObserver.OnWindowFocusChangeListener { focused ->
-                    if (!focused) callKeyDown = null
-                    else {
-                        // A newly shown dialog can gain window focus after the initial focus request.
-                        inputModeManager.requestInputMode(InputMode.Keyboard)
-                        callFocus.requestFocus()
-                    }
-                }
-                view.viewTreeObserver.addOnWindowFocusChangeListener(listener)
-                onDispose { if (view.viewTreeObserver.isAlive) view.viewTreeObserver.removeOnWindowFocusChangeListener(listener) }
-            }
-            Text(stringResource(R.string.magic_confirm_call))
-        },
-            text = { Text("${recipient.displayName}\n${recipient.address}") },
-            confirmButton = { TextButton(onClick = ::confirmCall, modifier = Modifier.onPreviewKeyEvent { event ->
-                 if (event.key != Key.Enter && event.key != Key.NumPadEnter) false else {
-                     if (event.nativeKeyEvent.isCanceled) callKeyDown = null
-                     // Only this button's fresh press can confirm, never the opening key's repeat/release.
-                     else if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) callKeyDown = event.key
-                     if (event.type == KeyEventType.KeyUp) {
-                         if (!event.nativeKeyEvent.isCanceled && callKeyDown == event.key) confirmCall()
-                         callKeyDown = null
-                    }
-                    true
-                }
-            }.onFocusChanged { if (!it.isFocused) callKeyDown = null }.focusRequester(callFocus).testTag("magic_confirm_call")) { Text(stringResource(R.string.magic_call)) } },
-            dismissButton = { Row { TextButton(onClick = { dismissCall(); if (activeCall() && s.claim()) handoff(call(recipient.address, chooser = true)) }) { Text(stringResource(R.string.magic_call_app)) }
-                TextButton(onClick = ::dismissCall) { Text(stringResource(R.string.magic_cancel)) } } })
-    }
     smsConfirmation?.let { request ->
         AlertDialog(onDismissRequest = { smsConfirmation = null; s.cancelSms() },
             title = { Text(stringResource(R.string.magic_confirm_sms)) },

@@ -86,8 +86,9 @@ class AssistantUiTest {
         compose.onNodeWithTag("assistant_source:$turn:1").assertTextEquals("[2] Undated — example.com")
     }
 
-    @Test fun advancedExposesGemma4WithoutSpeechSetup() {
+    @Test fun offlineAssistantExposesGemma4WithoutSpeechSetupOrKeyboardInstructions() {
         compose.setContent { MaterialTheme { AssistantSettings() } }
+        compose.onNodeWithText(compose.activity.getString(R.string.magic_help)).assertDoesNotExist()
         compose.onNodeWithTag("assistant_model_Gemma4").assertExists()
         compose.onNodeWithTag("assistant_model_FunctionGemma").assertDoesNotExist()
         compose.onNodeWithTag("assistant_token").assertDoesNotExist()

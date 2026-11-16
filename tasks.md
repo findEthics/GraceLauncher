@@ -1,5 +1,14 @@
 # Tasks
 
+## Icon, direct calls and Advanced navigation — 2026-11-15
+
+- Implemented the supplied house/arrow artwork as a white-alpha adaptive/monochrome foreground on `#1C1F26`, with all five legacy densities, circular variants and the 512px store icon. Foreground pixels fit the inner 66dp safe circle. App name remains **Grace Launcher**.
+- `#` contact Enter/tap now claims once and calls without a confirmation dialog. Request phone permission when supported; denial, unsupported numbers/devices or unavailable direct calling fall back to the default dialer. Repeats/releases and stale submits cannot redispatch a successful generation. Updated synthetic keyboard coverage; real call/permission behavior remains unverified.
+- `-` is the only to-do character trigger; Alt+T retained. `(` is ordinary text, with host and keyboard regression tests. Advanced now has only Offline assistant and Keyboard shortcuts rows, with separate scrollable subpages and navigation assertions.
+- Verification (JDK21, existing SDK): `:app:assembleDebug`, `:app:testDebugUnitTest` (**209 passed**, no skips/failures/errors) and `:app:compileDebugAndroidTestKotlin` passed. Generated image dimensions/alpha/safe-circle assertions and `git diff --check` passed.
+- `:app:lintDebug` **failed** on the untouched `ui/home/HomeScreen.kt:269` `RememberInComposition` error; report also lists 623 warnings and 3 hints. No unrelated Home/lint changes made. Requested `:app:testReleaseUnitTest` does not exist in this project's task graph, so the original combined command failed before execution; no build configuration changes made to create it.
+- Logs: `app/build/reports/approved-refinements/{verification,available-checks,final-checks}.log`; full lint report: `app/build/reports/lint-results-debug.xml`. Device tests, installs, release signing/R8/runtime and physical-device checks were deliberately **not run**. The edited instrumentation tests compile but have not executed.
+
 ## Magic contact handoff and Home return — 2026-11-14
 
 - [x] Empty-body contact selection opens the existing provider draft route immediately; typed bodies and conversation selection retain their previous flow. Empty unsupported routes open only that app's launch screen and report recipient reselection; strict-provider/no-SMS-fallback guards remain. Empty `@` results cap the combined expanded rows at five; typed queries unchanged.

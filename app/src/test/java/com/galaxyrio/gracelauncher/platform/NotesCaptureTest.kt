@@ -18,7 +18,6 @@ class NotesCaptureTest {
 
     @Test fun unicodeAndHardwareAltOpenTheFloatingKinds() {
         for ((input, expected) in listOf(
-            Triple(KeyEvent.KEYCODE_T, '(', 0) to MagicKind.Todo,
             Triple(KeyEvent.KEYCODE_MINUS, '-', 0) to MagicKind.Todo,
             Triple(KeyEvent.KEYCODE_N, ',', 0) to MagicKind.Note,
             Triple(KeyEvent.KEYCODE_T, '\u0000', KeyEvent.META_ALT_ON) to MagicKind.Todo,
@@ -88,8 +87,8 @@ class NotesCaptureTest {
         for (activeSession in listOf(false, true)) for (focused in listOf(false, true)) {
             if (!activeSession && !focused) continue
             for ((key, char, meta) in listOf(
-                Triple(KeyEvent.KEYCODE_T, '(', 0), Triple(KeyEvent.KEYCODE_N, ',', 0),
-                Triple(KeyEvent.KEYCODE_T, '(', KeyEvent.META_ALT_ON),
+                Triple(KeyEvent.KEYCODE_MINUS, '-', 0), Triple(KeyEvent.KEYCODE_N, ',', 0),
+                Triple(KeyEvent.KEYCODE_T, '-', KeyEvent.META_ALT_ON),
                 Triple(KeyEvent.KEYCODE_N, ',', KeyEvent.META_ALT_ON),
                 Triple(KeyEvent.KEYCODE_T, '\u0000', KeyEvent.META_ALT_ON),
                 Triple(KeyEvent.KEYCODE_N, '\u0000', KeyEvent.META_ALT_ON),
@@ -113,7 +112,7 @@ class NotesCaptureTest {
     }
 
     @Test fun openingRepeatAndReleaseAreOwnedAcrossFocusAndClose() {
-        for ((char, meta) in listOf('(' to 0, '\u0000' to KeyEvent.META_ALT_ON)) {
+        for ((char, meta) in listOf('-' to 0, '\u0000' to KeyEvent.META_ALT_ON)) {
             val controller = MagicController().apply { eligible = true }
             assertTrue(controller.press(KeyEvent.KEYCODE_T, char, meta))
             val session = controller.session
@@ -141,15 +140,15 @@ class NotesCaptureTest {
     }
 
     @Test fun unicodeCaptureAllowsTitanAltAndSymButNotControlOrMeta() {
-        for (char in listOf('(', ',')) for (meta in listOf(0, KeyEvent.META_ALT_ON,
+        for (char in listOf('-', ',')) for (meta in listOf(0, KeyEvent.META_ALT_ON,
             KeyEvent.META_SYM_ON, KeyEvent.META_ALT_ON or KeyEvent.META_SYM_ON)) {
             val controller = MagicController().apply { eligible = true }
             assertTrue(controller.press(KeyEvent.KEYCODE_UNKNOWN, char, meta))
-            assertEquals(if (char == '(') MagicKind.Todo else MagicKind.Note, controller.session?.kind)
+            assertEquals(if (char == '-') MagicKind.Todo else MagicKind.Note, controller.session?.kind)
         }
         for (meta in listOf(KeyEvent.META_CTRL_ON, KeyEvent.META_META_ON)) {
             val controller = MagicController().apply { eligible = true }
-            assertFalse(controller.press(character = '(', meta = meta))
+            assertFalse(controller.press(character = '-', meta = meta))
         }
     }
 

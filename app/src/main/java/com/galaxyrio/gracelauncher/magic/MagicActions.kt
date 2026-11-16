@@ -17,12 +17,12 @@ import android.telephony.PhoneNumberUtils
 import android.telephony.SmsManager
 import android.telephony.SubscriptionManager
 import androidx.core.net.toUri
-import com.galaxyrio.gracelauncher.R
 import com.galaxyrio.gracelauncher.data.LauncherApp
 import com.galaxyrio.gracelauncher.data.LauncherShortcut
 import com.katoaapps.openminilaunch.features.calendar.model.CalendarDraft
 import com.katoaapps.openminilaunch.features.messaging.MessagingDeviceActions
 import com.katoaapps.openminilaunch.model.LauncherShortcutTarget
+import com.katoaapps.openminilaunch.model.looksLikePhoneRecipient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -75,12 +75,14 @@ internal class MagicActions(private val context: Context) {
             SmsOutcome.Queued
         } catch (_: Exception) { SmsOutcome.Unknown }
     }
-    fun call(phone: String, chooser: Boolean = false): Boolean {
+    @Suppress("DEPRECATION")
+    fun supportsDirectCall(phone: String): Boolean = phone.looksLikePhoneRecipient() &&
+        context.packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY) &&
+        !PhoneNumberUtils.isEmergencyNumber(phone)
+
+    fun call(phone: String): Boolean {
         val dial = Intent(Intent.ACTION_DIAL, "tel:${android.net.Uri.encode(phone)}".toUri())
-        if (chooser) return start(Intent.createChooser(dial, context.getString(R.string.magic_call_app)))
-        @Suppress("DEPRECATION")
-        val canCall = context.packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY) &&
-            !PhoneNumberUtils.isEmergencyNumber(phone) && hasPermission(Manifest.permission.CALL_PHONE)
+        val canCall = supportsDirectCall(phone) && hasPermission(Manifest.permission.CALL_PHONE)
         return (canCall && start(Intent(Intent.ACTION_CALL, dial.data))) || start(dial)
     }
     fun calendar(draft: CalendarDraft): Boolean = start(Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI).apply {

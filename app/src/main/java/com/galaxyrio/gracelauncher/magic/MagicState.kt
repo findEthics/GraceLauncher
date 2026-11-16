@@ -11,7 +11,7 @@ import com.katoaapps.openminilaunch.model.CommunicationRecipient
 import com.katoaapps.openminilaunch.features.messaging.MessageDraft
 
 internal enum class MagicKind(val prefix: Char, val displayPrefix: String) {
-    Message('@', "@"), Call('#', "📞"), Event('+', "📅"), Todo('(', "✅"), Note(',', "📝"), Alarm('!', "⏰");
+    Message('@', "@"), Call('#', "📞"), Event('+', "📅"), Todo('-', "✅"), Note(',', "📝"), Alarm('!', "⏰");
     val usesContacts get() = this == Message || this == Call
 }
 
@@ -119,7 +119,6 @@ internal class MagicController {
     var pillRevision by mutableStateOf(0); private set
     var dataSource: MagicDataSource? = null
     var fakeCall: ((String, Boolean) -> Boolean)? = null
-    var fakeCallPermission = false
     var fakeMessageDraft: ((CommunicationRecipient, String, String?, Boolean) -> com.katoaapps.openminilaunch.features.messaging.PreferredMessageDraftResult)? = null
     var eligible = false
     private var generation = 0L
@@ -192,10 +191,10 @@ internal class MagicController {
                 open(captureKind)
                 return true
             }
-            if (character in "@#+?(,-!".map(Char::code)) {
+            if (character in "@#+?,-!".map(Char::code)) {
                 keys.openingKey = keyCode
                 if (character == '?'.code) { searchOpening = true; onOpenSearch?.invoke() }
-                else open(if (character == '-'.code) MagicKind.Todo else MagicKind.entries.first { it.prefix.code == character })
+                else open(MagicKind.entries.first { it.prefix.code == character })
                 return true
             }
         }
@@ -205,6 +204,12 @@ internal class MagicController {
             else if (printable(character)) { onSearchText?.invoke(String(Character.toChars(character))); return true }
         }
         val current = session ?: return false
+        // Own call Enter before the editor/IME can defer it until release.
+        if (current.kind == MagicKind.Call &&
+            (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+            if (repeatCount == 0) onSubmit?.invoke() ?: run { submitPending = true }
+            return true
+        }
         // Tab belongs to the new session even while Android still reports the previous editor.
         if (!composerEverFocused && keyCode == KeyEvent.KEYCODE_TAB) {
             if (repeatCount == 0) {
@@ -213,7 +218,7 @@ internal class MagicController {
             }
             return true
         }
-        if (textEditorFocused || character == '('.code || character == ','.code || character == '-'.code || captureKind != null) return false
+        if (textEditorFocused || character == ','.code || character == '-'.code || captureKind != null) return false
         // Compose can take a frame to focus after the opening key.
         if (!composerEverFocused) {
             if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
@@ -235,7 +240,7 @@ internal class MagicKeySequence {
     private val consumed = mutableSetOf<Int>()
 
     fun openingRepeat(keyCode: Int, repeatCount: Int): Boolean {
-        if (repeatCount != 0) return keyCode == openingKey
+        if (repeatCount != 0) return keyCode == openingKey || keyCode in consumed
         // A fresh press recovers if another window received the previous release.
         consumed.remove(keyCode)
         if (openingKey == keyCode) openingKey = null
