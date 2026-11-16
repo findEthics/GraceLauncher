@@ -177,4 +177,54 @@ class AssistantChatStateTest {
         assertEquals("Cancelled", chat.turns.single().response)
         assertTrue(chat.context(1000).isEmpty())
     }
+
+    @Test fun replayIncludesNumberedHeadlinesAndDomainsAndBudgetsTheirBytes() {
+        val chat = AssistantChatState()
+        val id = chat.begin("news", false)
+        chat.searchDetails(id, listOf(WebSource("First story", "https://example.org/1", "evidence"),
+            WebSource("Second story", "https://example.org/2", "evidence")), "")
+        chat.update(id, "Two reports [1] [2]", complete = true, inContext = true)
+        val expected = "Two reports [1] [2]\nSources: [1]First story (example.org);[2]Second story (example.org)"
+        val bytes = "news".toByteArray().size + expected.toByteArray().size + 16
+        val turn = chat.context(bytes).single()
+        assertEquals(expected, AssistantController.historyResponse(turn))
+        assertEquals(bytes, AssistantController.usedHistoryBytes(listOf(turn)))
+        assertEquals("Two reports [1] [2]", turn.response)
+        assertTrue(chat.context(bytes - 1).isEmpty())
+        assertTrue(chat.contextDropped)
+    }
+
+    @Test fun replayFootnotesStayWithinAllowanceAndNeverSplitUnicode() {
+        for (count in 1..6) {
+            val sources = List(count) { WebSource("é😀".repeat(40), "https://example.org/$it", "evidence") }
+            for (warning in listOf("", "Search failed")) {
+                val turn = ChatTurn(1, "request", false, "answer", sources = sources, searchWarning = warning)
+                val replay = AssistantController.historyResponse(turn)
+                assertTrue(replay.toByteArray(Charsets.UTF_8).size <= turn.response.toByteArray(Charsets.UTF_8).size + 120)
+                assertFalse(replay.contains('\uFFFD'))
+                assertTrue(replay.contains("answer"))
+                if (replay.contains("\nSources: ")) {
+                    for (number in 1..count) assertTrue(replay.contains("[$number]é"))
+                    assertEquals(count, Regex("\\(example\\.org\\)").findAll(replay).count())
+                }
+                if (warning.isNotEmpty()) assertTrue(replay.startsWith("[Web search failed; unverified offline reply] "))
+            }
+        }
+        assertEquals("plain", AssistantController.historyResponse(ChatTurn(1, "request", false, "plain")))
+        assertEquals("Action result: done", AssistantController.historyResponse(ChatTurn(1, "request", true, "done")))
+    }
+
+    @Test fun onlyLatestSourcedTurnGetsLargerReplayAllowance() {
+        val source = WebSource("Long title ".repeat(30), "https://example.org/page", "evidence")
+        val first = ChatTurn(1, "first", false, "answer", sources = listOf(source))
+        val latest = first.copy(id = 2, request = "latest")
+        val offline = ChatTurn(3, "offline", false, "answer")
+        val history = listOf(first, latest, offline)
+        val expected = history.sumOf { turn ->
+            turn.request.toByteArray().size + maxOf(turn.response.toByteArray().size + 64,
+                AssistantController.historyResponse(turn, if (turn.id == 2L) 120 else 48).toByteArray().size + 16)
+        }
+        assertEquals(expected, AssistantController.usedHistoryBytes(history))
+        assertTrue(AssistantController.historyResponse(latest).contains("(example.org)"))
+    }
 }

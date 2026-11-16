@@ -44,11 +44,11 @@ class AssistantChatState {
     internal fun context(byteBudget: Int): List<ChatTurn> {
         val eligible = turns.filter { it.complete && it.inContext }.toMutableList()
         // ponytail: UTF-8 bytes + template allowance roll early; use exact input tokenization when the SDK exposes it.
-        var bytes = eligible.sumOf { it.request.toByteArray(Charsets.UTF_8).size + it.response.toByteArray(Charsets.UTF_8).size + 64 }
+        var bytes = AssistantController.usedHistoryBytes(eligible)
         val removed = mutableSetOf<Long>()
         while (bytes > byteBudget && eligible.isNotEmpty()) {
             val old = eligible.removeAt(0)
-            bytes -= old.request.toByteArray(Charsets.UTF_8).size + old.response.toByteArray(Charsets.UTF_8).size + 64
+            bytes = AssistantController.usedHistoryBytes(eligible)
             removed += old.id
         }
         if (removed.isNotEmpty()) {
