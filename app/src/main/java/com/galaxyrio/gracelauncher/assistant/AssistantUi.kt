@@ -43,13 +43,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.galaxyrio.gracelauncher.R
+import kotlinx.coroutines.launch
 import java.net.URI
 
 @Composable
 internal fun AssistantLifecycle(assistant: AssistantController) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(assistant, lifecycle) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE) assistant.pause() }
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE) assistant.pause() else if (event == Lifecycle.Event.ON_RESUME) assistant.refreshHealth() }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
@@ -71,13 +72,19 @@ internal fun AssistantChat(assistant: AssistantController) {
     if (!assistant.chat.visible) return
     AssistantChatWindow(assistant.chat, assistant.busy, assistant.canCancel, assistant.status,
         onSend = assistant::submit, onStop = assistant::cancel, onClose = assistant::closeChat,
-        onFocus = assistant::composerFocusChanged)
+        onFocus = assistant::composerFocusChanged, healthAvailable = assistant.healthAvailable)
+}
+
+private fun sourceLabel(source: ChatSource) = when (source) {
+    ChatSource.WIKIPEDIA -> R.string.assistant_wikipedia
+    ChatSource.HEALTH -> R.string.assistant_health
+    else -> R.string.assistant_web_search
 }
 
 @Composable
 internal fun AssistantChatWindow(
     chat: AssistantChatState, busy: Boolean, canCancel: Boolean, status: String,
-    onSend: () -> Unit, onStop: () -> Unit, onClose: () -> Unit, onFocus: (Boolean) -> Unit = {},
+    onSend: () -> Unit, onStop: () -> Unit, onClose: () -> Unit, onFocus: (Boolean) -> Unit = {}, healthAvailable: Boolean = false,
 ) {
     BackHandler(onBack = onClose)
     val focus = remember { FocusRequester() }
@@ -92,6 +99,7 @@ internal fun AssistantChatWindow(
     val messageDescription = stringResource(R.string.assistant_message)
     val removeWebDescription = stringResource(R.string.assistant_remove_web_search)
     val removeWikipediaDescription = stringResource(R.string.assistant_remove_wikipedia)
+    val removeHealthDescription = stringResource(R.string.assistant_remove_health)
     val toolsDescription = stringResource(R.string.assistant_tools)
     val uriHandler = LocalUriHandler.current
     var toolsExpanded by remember { mutableStateOf(false) }
@@ -116,11 +124,13 @@ internal fun AssistantChatWindow(
                                 if (turn.action) Text(stringResource(R.string.assistant_action_result), style = MaterialTheme.typography.labelSmall)
                                 if (turn.webSearch) Text(stringResource(R.string.assistant_web_search), style = MaterialTheme.typography.labelSmall)
                                 if (turn.source == ChatSource.WIKIPEDIA) Text(stringResource(R.string.assistant_wikipedia), style = MaterialTheme.typography.labelSmall)
+                                if (turn.source == ChatSource.HEALTH) Text(stringResource(R.string.assistant_health), style = MaterialTheme.typography.labelSmall)
                                 if (turn.searchWarning.isNotBlank()) Text(turn.searchWarning,
                                     Modifier.testTag("assistant_search_warning:${turn.id}"), color = MaterialTheme.colorScheme.error,
                                     style = MaterialTheme.typography.bodySmall)
                                 Text(turn.response.ifBlank { stringResource(R.string.assistant_processing) },
                                     Modifier.testTag("assistant_response:${turn.id}"))
+                                turn.healthCard?.let { HealthStatusCard(turn.id, it) }
                                 if (turn.webSearch && turn.complete && turn.inContext && turn.response.isNotBlank() &&
                                     turn.searchWarning.isBlank() && turn.sources.isNotEmpty()) {
                                     Text(pluralStringResource(R.plurals.assistant_web_results_disclosure, turn.sources.size, turn.sources.size),
@@ -155,9 +165,9 @@ internal fun AssistantChatWindow(
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (chat.source != ChatSource.NONE) InputChip(selected = true,
                         onClick = { chat.source = ChatSource.NONE },
-                        label = { Text(stringResource(if (chat.source == ChatSource.WIKIPEDIA) R.string.assistant_wikipedia else R.string.assistant_web_search)) }, trailingIcon = { Text("×") },
-                        modifier = Modifier.testTag(if (chat.source == ChatSource.WIKIPEDIA) "assistant_wikipedia_chip" else "assistant_web_chip")
-                            .semantics { contentDescription = if (chat.source == ChatSource.WIKIPEDIA) removeWikipediaDescription else removeWebDescription })
+                        label = { Text(stringResource(sourceLabel(chat.source))) }, trailingIcon = { Text("×") },
+                        modifier = Modifier.testTag(when (chat.source) { ChatSource.WIKIPEDIA -> "assistant_wikipedia_chip"; ChatSource.HEALTH -> "assistant_health_chip"; else -> "assistant_web_chip" })
+                            .semantics { contentDescription = when (chat.source) { ChatSource.WIKIPEDIA -> removeWikipediaDescription; ChatSource.HEALTH -> removeHealthDescription; else -> removeWebDescription } })
                 }
                 OutlinedTextField(
                     value = chat.input, onValueChange = { chat.input = it },
@@ -185,11 +195,11 @@ internal fun AssistantChatWindow(
                             }
                             DropdownMenu(expanded = toolsExpanded, onDismissRequest = { toolsExpanded = false },
                                 shape = RoundedCornerShape(28.dp), modifier = Modifier.testTag("assistant_tools_menu")) {
-                                for (source in listOf(ChatSource.WEB, ChatSource.WIKIPEDIA)) {
-                                    DropdownMenuItem(text = { Text(stringResource(if (source == ChatSource.WIKIPEDIA) R.string.assistant_wikipedia else R.string.assistant_web_search)) },
+                                for (source in listOf(ChatSource.WEB, ChatSource.WIKIPEDIA) + if (healthAvailable) listOf(ChatSource.HEALTH) else emptyList()) {
+                                    DropdownMenuItem(text = { Text(stringResource(sourceLabel(source))) },
                                         leadingIcon = { Checkbox(checked = chat.source == source, onCheckedChange = null) },
                                         onClick = { chat.source = if (chat.source == source) ChatSource.NONE else source; toolsExpanded = false },
-                                        modifier = Modifier.testTag(if (source == ChatSource.WIKIPEDIA) "assistant_wikipedia_option" else "assistant_web_search_option").semantics {
+                                        modifier = Modifier.testTag(when (source) { ChatSource.WIKIPEDIA -> "assistant_wikipedia_option"; ChatSource.HEALTH -> "assistant_health_option"; else -> "assistant_web_search_option" }).semantics {
                                             role = Role.Checkbox; toggleableState = ToggleableState(chat.source == source)
                                         })
                                 }
@@ -213,6 +223,70 @@ internal fun AssistantChatWindow(
             }
         }
     }
+}
+
+@Composable
+private fun HealthStatusCard(turnId: Long, card: HealthCard) {
+    var expanded by remember(turnId) { mutableStateOf(false) }
+    val zone = remember { java.time.ZoneId.systemDefault() }
+    val title = when (val f = card.freshness) {
+        is HealthFreshness.Live -> stringResource(R.string.assistant_health_live, HealthEvidence.clock(f.retrievedAt, zone))
+        is HealthFreshness.Cached -> stringResource(R.string.assistant_health_cached, HealthEvidence.time(f.retrievedAt, zone), f.start ?: "?", f.end ?: "?")
+        is HealthFreshness.Unavailable -> stringResource(R.string.assistant_health_unavailable, f.reason)
+    }
+    Surface(Modifier.fillMaxWidth().padding(top = 8.dp).testTag("assistant_health_card:$turnId"),
+        shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, Modifier.testTag("assistant_health_status:$turnId"), style = MaterialTheme.typography.bodySmall)
+            if (card.details.isNotBlank()) {
+                if (expanded) Text(card.details, Modifier.testTag("assistant_health_details:$turnId"), style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { expanded = !expanded }, modifier = Modifier.heightIn(min = 48.dp).testTag("assistant_health_expand:$turnId")) {
+                    Text(stringResource(if (expanded) R.string.assistant_health_details_hide else R.string.assistant_health_details_show))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HealthSettings() {
+    val context = LocalContext.current.applicationContext
+    val scope = rememberCoroutineScope()
+    val vault = remember(context) { HealthVault.create(context) }
+    var saved by remember { mutableStateOf(runCatching { vault.tokenSaved() }.getOrDefault(false)) }
+    var field by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf(if (saved) context.getString(R.string.assistant_health_status_saved) else "") }
+    var checking by remember { mutableStateOf(false) }
+    val tokenDescription = stringResource(R.string.assistant_health_token)
+    Text(stringResource(R.string.assistant_health_title), style = MaterialTheme.typography.titleMedium)
+    Text(stringResource(R.string.assistant_health_hint), style = MaterialTheme.typography.bodySmall)
+    OutlinedTextField(value = field, onValueChange = { field = it.trim() }, singleLine = true,
+        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+        label = { Text(tokenDescription) },
+        keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password, autoCorrectEnabled = false),
+        modifier = Modifier.fillMaxWidth().testTag("assistant_health_token").semantics { contentDescription = tokenDescription })
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(enabled = !checking && field.isNotEmpty(), modifier = Modifier.testTag("assistant_health_save"), onClick = {
+            val token = field
+            if (!vault.saveToken(token)) { status = context.getString(R.string.assistant_health_status_invalid); return@Button }
+            field = ""; saved = true; checking = true
+            status = context.getString(R.string.assistant_health_status_saved)
+            scope.launch {
+                status = try {
+                    val reply = HealthMcpClient().verify(token)
+                    context.getString(R.string.assistant_health_status_connected, reply.optString("latest_metric_date").ifBlank { "—" })
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (_: HealthFailure.Unauthorized) { vault.wipeCache(); vault.markRejected(token); context.getString(R.string.assistant_health_status_rejected) }
+                catch (_: Exception) { context.getString(R.string.assistant_health_status_unreachable) }
+                checking = false
+            }
+        }) { Text(stringResource(R.string.assistant_health_save)) }
+        TextButton(enabled = saved && !checking, modifier = Modifier.testTag("assistant_health_remove"), onClick = {
+            vault.removeToken(); saved = false; field = ""; status = context.getString(R.string.assistant_health_status_removed)
+        }) { Text(stringResource(R.string.assistant_health_remove)) }
+    }
+    if (status.isNotBlank()) Text(status, Modifier.testTag("assistant_health_token_status"), style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable
@@ -284,6 +358,8 @@ fun AssistantSettings(modifier: Modifier = Modifier) {
                 modifier = Modifier.testTag("assistant_show_home_button").semantics { contentDescription = homeButtonDescription })
         }
         Text(stringResource(R.string.assistant_show_home_button_hint), style = MaterialTheme.typography.bodySmall)
+        HorizontalDivider()
+        HealthSettings()
         HorizontalDivider()
         Text(assistant.selected.label, Modifier.testTag("assistant_model_Gemma4"), style = MaterialTheme.typography.titleMedium)
         Text(if (assistant.ready()) stringResource(R.string.assistant_ready) else "${assistant.selected.bytes / 1_000_000} MB")

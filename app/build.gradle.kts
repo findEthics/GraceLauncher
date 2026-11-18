@@ -21,8 +21,8 @@ android {
         applicationId = "com.galaxyrio.gracelauncher"
         minSdk = 28
         targetSdk = 37
-        versionCode = 17
-        versionName = "1.2.9"
+        versionCode = 18
+        versionName = "1.2.10"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TAVILY_API_KEY", "\"$tavilyKey\"")

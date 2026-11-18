@@ -42,6 +42,13 @@ class AssistantController(private val context: Context, private val scope: Corou
     internal var composerFocused = false
     private var composerEverFocused = false
     private var shortcutKey: Int? = null
+    private val healthVault by lazy { HealthVault.create(context) }
+    /** The Health row/chip exist only while a token is saved; refreshed on open/resume (Advanced is another activity). */
+    var healthAvailable by mutableStateOf(false); private set
+    fun refreshHealth() {
+        healthAvailable = runCatching { healthVault.tokenSaved() }.getOrDefault(false)
+        if (!healthAvailable && chat.source == ChatSource.HEALTH) chat.source = ChatSource.WEB
+    }
     private val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         enabled = prefs.getBoolean("enabled", false)
         homeButtonVisible = prefs.getBoolean("show_home_button", true)
@@ -84,6 +91,7 @@ class AssistantController(private val context: Context, private val scope: Corou
     fun openChat() {
         if (enabled) {
             if (!chat.visible) composerEverFocused = false
+            refreshHealth()
             chat.open()
         }
     }
@@ -131,7 +139,9 @@ class AssistantController(private val context: Context, private val scope: Corou
         val source = chat.source
         // "source N" is resolved here from RAM, never by Gemma: no search, no network, whatever the chip says.
         val followUp = SourceFollowUp.resolve(input, chat.turns)
-        val webSearch = source != ChatSource.NONE || followUp is SourceFollowUp.Resolved
+        val health = source == ChatSource.HEALTH && followUp !is SourceFollowUp.Resolved
+        val webSearch = (source != ChatSource.NONE && source != ChatSource.HEALTH) || followUp is SourceFollowUp.Resolved
+        val reserve = webSearch || health // Health evidence (<=1,800 tokens) shares the Web reserve.
         val id = commands.begin() ?: run { status = "Another command is finishing. Try again shortly."; return }
         check(commands.claim(id))
         val turn = chat.begin(input, false)
@@ -149,18 +159,30 @@ class AssistantController(private val context: Context, private val scope: Corou
                     }
                     else -> Unit
                 }
-                val inputBudget = CHAT_INPUT_TOKENS - if (webSearch) WEB_CONTEXT_TOKENS else 0
+                val inputBudget = CHAT_INPUT_TOKENS - if (reserve) WEB_CONTEXT_TOKENS else 0
                 val inputTokens = estimateTokens(input)
                 if (inputTokens > inputBudget) {
                     complete(turn, "Message is too long for the local context. Shorten it and send again. No action performed.")
                     return@launch
                 }
-                val history = chat.context(historyContextTokens(inputTokens, webSearch))
+                val history = chat.context(historyContextTokens(inputTokens, reserve))
                 val webBudget = if (webSearch) minOf(MAX_WEB_CONTEXT_TOKENS,
                     CHAT_INPUT_TOKENS - inputTokens - usedHistoryTokens(history)) else 0
                 status = ""
                 val onResponse: suspend (String) -> Unit = { response ->
                     withContext(Dispatchers.Main.immediate) { if (id == generation) chat.update(turn, response) }
+                }
+                if (health) {
+                    val ran = HealthTurn(healthVault, fetch = { token, zone, weekly -> HealthMcpClient().fetch(token, zone, weekly) })
+                        .run(input,
+                            onCard = { card -> withContext(Dispatchers.Main.immediate) { if (id == generation) chat.healthCard(turn, card) } },
+                            infer = { system, evidence -> inferChat(evidence, history, onResponse, system) },
+                            onUrgent = { message -> withContext(Dispatchers.Main.immediate) { if (id == generation) complete(turn, message) } })
+                    if (!ran) return@launch
+                    val response = chat.response(turn)
+                    require(response.isNotBlank()) { "No reply produced. No action performed." }
+                    if (id == generation) { chat.update(turn, response, complete = true, inContext = true); status = "" }
+                    return@launch
                 }
                 val wikipediaSummaryGenerated = if (followUp is SourceFollowUp.Resolved) answerFromSavedSources(
                     input, history, followUp, webBudget, turn, id, onResponse)
@@ -256,10 +278,11 @@ class AssistantController(private val context: Context, private val scope: Corou
     }
 
     /** Replays plain text only. No tools or previous proposals are registered in a chat conversation. */
-    internal suspend fun inferChat(text: String, history: List<ChatTurn> = emptyList(), onResponse: suspend (String) -> Unit): Unit = withEngine(selected) {
+    internal suspend fun inferChat(text: String, history: List<ChatTurn> = emptyList(), onResponse: suspend (String) -> Unit,
+        system: String = CHAT_INSTRUCTIONS): Unit = withEngine(selected) {
         val current = engine!!.createConversation(ConversationConfig(
             tools = emptyList(), automaticToolCalling = false,
-            systemInstruction = Contents.of(listOf(Content.Text(CHAT_INSTRUCTIONS))),
+            systemInstruction = Contents.of(listOf(Content.Text(system))),
             initialMessages = historyMessages(history),
             maxOutputToken = CHAT_OUTPUT_TOKENS,
             samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 0),
@@ -548,6 +571,7 @@ class AssistantController(private val context: Context, private val scope: Corou
                     (if (turn.searchWarning.isNotBlank()) "; retrieval warning" else "") + "] " + turn.response + attribution +
                     turn.sources.mapIndexed { index, item -> "[${turn.number(index)}]" + truncateToTokens(item.title, sourceTokens / maxOf(1, turn.sources.size) - 4) }.joinToString(";")
             }
+            if (turn.source == ChatSource.HEALTH) return "[Health reply from earlier retrieved data; may be outdated] " + turn.response
             val prefix = (if (turn.searchWarning.isNotBlank()) "[Web search failed; unverified offline reply] " else "") +
                 if (turn.action) "Action result: " else ""
             if (turn.sources.isEmpty() || turn.action) return prefix + turn.response

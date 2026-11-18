@@ -6,7 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 
-enum class ChatSource { WEB, WIKIPEDIA, NONE }
+enum class ChatSource { WEB, WIKIPEDIA, NONE, HEALTH }
 
 internal data class ChatTurn(
     val id: Long, val request: String, val action: Boolean,
@@ -15,6 +15,8 @@ internal data class ChatTurn(
     val wikipediaSummaryGenerated: Boolean = false,
     /** Displayed number per source; null means 1..n. Set when a "source N" follow-up re-shows earlier cards. */
     val sourceNumbers: List<Int>? = null,
+    /** App-rendered freshness card of a Health turn (RAM only). */
+    val healthCard: HealthCard? = null,
 ) {
     fun number(index: Int) = sourceNumbers?.getOrNull(index) ?: (index + 1)
     val webSearch get() = source == ChatSource.WEB
@@ -50,6 +52,9 @@ class AssistantChatState {
         wikipediaSummaryGenerated: Boolean = false) {
         turns = turns.map { if (it.id == id && !it.complete) it.copy(response = response, complete = complete,
             inContext = inContext, wikipediaSummaryGenerated = wikipediaSummaryGenerated) else it }
+    }
+    internal fun healthCard(id: Long, card: HealthCard) {
+        turns = turns.map { if (it.id == id && !it.complete) it.copy(healthCard = card) else it }
     }
     internal fun response(id: Long) = turns.firstOrNull { it.id == id }?.response.orEmpty()
     /** [numbers]/[provider] are only passed when earlier cards are re-shown under their original numbers; null keeps the turn's own. */
