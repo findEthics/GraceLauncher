@@ -30,7 +30,7 @@ class WebSearchTest {
                 }, inferStep = { _, next, allow ->
                     if (steps > 0) {
                         val result = (next.contents.contents.single() as Content.ToolResponse).response.toString()
-                        assertTrue(result.toByteArray(Charsets.UTF_8).size <= AssistantController.webContextBytes(request.toByteArray(Charsets.UTF_8).size) / 2)
+                        assertTrue(result.toByteArray(Charsets.UTF_8).size <= AssistantController.webContextTokens(request.toByteArray(Charsets.UTF_8).size) / 2)
                         assertEquals(!filtered, result.contains("Today in History"))
                         assertTrue(result.contains("[${if (steps == 1) 1 else if (filtered) 2 else 3}] Headline: ${if (steps == 1) "Current" else "Other"} report (published: 2026-11-04)\nExcerpt: "))
                         assertTrue(result.contains("[${if (steps == 1) if (filtered) 2 else 3 else if (filtered) 3 else 4}] Headline: ${if (steps == 1) "Other" else "Latest"} report"))
@@ -76,10 +76,10 @@ class WebSearchTest {
                 var searches = 0
                 var steps = 0
                 var toolBytes = 0
-                val reserve = AssistantController.webContextBytes(input.toByteArray(Charsets.UTF_8).size)
+                val reserve = AssistantController.webContextTokens(input.toByteArray(Charsets.UTF_8).size)
                 controller.inferWebChat(input, search = {
                     searches++
-                    List(3) { WebSource("t".repeat(60), "https://example.org/$searches/$it", "é😀".repeat(200), "d".repeat(40)) }
+                    List(3) { WebSource("Source $searches $it " + "t".repeat(50), "https://example.org/$searches/$it", "é😀".repeat(200), "d".repeat(40)) }
                 }, inferStep = { transcript, next, allow ->
                     assertEquals(steps * 2, transcript.size)
                     if (steps == 0) assertEquals(input, (next.contents.contents.single() as Content.Text).text)
@@ -126,8 +126,8 @@ class WebSearchTest {
                 }
             }, onDetails = { sources, warning ->
                 assertEquals("", warning)
-                assertEquals(AssistantController.utf8Prefix(headline, 60), sources.first().title)
-                assertEquals(320, sources.first().content.toByteArray(Charsets.UTF_8).size)
+                assertEquals(headline, sources.first().title)
+                assertEquals(content, sources.first().content)
             }, onResponse = {})
             assertEquals(2, steps)
         } finally { controller.close() }
@@ -254,8 +254,64 @@ class WebSearchTest {
                 else { assertFalse(allow); Message.model("Final answer [1] [2]") }
             }, onDetails = { sources, warning -> shown = sources; assertEquals("", warning) }, onResponse = { answer = it })
             assertEquals(2, calls); assertEquals(3, steps); assertEquals(2, shown.size)
-            assertTrue(shown.all { it.content.toByteArray(Charsets.UTF_8).size == 320 })
+            assertTrue(shown.all { it.content.toByteArray(Charsets.UTF_8).size == 1200 })
             assertEquals("Final answer [1] [2]", answer)
+        } finally { controller.close() }
+    }
+
+    @Test fun replyWideSelectionFiltersBeforeTenResultCapAndKeepsNumbersStableAcrossQueries() = runBlocking {
+        val controller = AssistantController(InstrumentationRegistry.getInstrumentation().targetContext, this)
+        try {
+            val first = List(8) { index -> WebSource("Story $index", "https://first.example/story/$index",
+                "Evidence for story $index. ".repeat(8)) }
+            val duplicate = first.first().copy(title = " STORY   0 ", url = "https://www.first.example/alternate")
+            val invalid = WebSource("Unsafe", "javascript:alert(1)", "Not usable")
+            val retrospective = WebSource("Today in History: an old opening", "https://history.example/story", "Historical text")
+            val additions = List(5) { index -> WebSource("Refined story $index", "https://new.example/story/$index",
+                "Evidence for refined story $index. ".repeat(8)) }
+            val queries = mutableListOf<String>()
+            val shownCounts = mutableListOf<Int>()
+            var shown = emptyList<WebSource>()
+            var steps = 0
+            var answer = ""
+            fun toolText(next: Message) = (next.contents.contents.single() as Content.ToolResponse).response.toString()
+
+            controller.inferWebChat("news today", search = { query ->
+                queries += query
+                if (queries.size == 1) listOf(invalid, retrospective, duplicate) + first
+                else listOf(invalid, duplicate, retrospective) + additions
+            }, inferStep = { _, next, allow ->
+                when (steps++) {
+                    0 -> { assertTrue(allow); searchCall("news today") }
+                    1 -> {
+                        val firstResult = toolText(next)
+                        assertEquals(3, Regex("(?m)^\\[\\d+\\] Headline:").findAll(firstResult).count())
+                        assertTrue(firstResult.contains("[1] Headline: Story 0"))
+                        assertFalse(firstResult.contains("Today in History"))
+                        searchCall("refined news")
+                    }
+                    else -> {
+                        assertFalse(allow)
+                        val secondResult = toolText(next)
+                        assertEquals(3, Regex("(?m)^\\[\\d+\\] Headline:").findAll(secondResult).count())
+                        assertTrue(secondResult.contains("[1] Headline: Story 0"))
+                        assertTrue(secondResult.contains("[9] Headline: Refined story 0"))
+                        assertTrue(secondResult.contains("[10] Headline: Refined story 1"))
+                        assertFalse(secondResult.contains("Today in History"))
+                        Message.model("Answer [1] [9] [10]")
+                    }
+                }
+            }, onDetails = { sources, warning ->
+                assertEquals("", warning)
+                shown = sources
+                shownCounts += sources.size
+            }, onResponse = { answer = it })
+
+            assertEquals(listOf("news today", "refined news"), queries)
+            assertEquals(listOf(8, 10), shownCounts)
+            assertEquals(first.map { it.url } + additions.take(2).map { it.url }, shown.map { it.url })
+            assertEquals(shown.size, shown.map { it.url }.distinct().size)
+            assertEquals("Answer [1] [9] [10]", answer)
         } finally { controller.close() }
     }
 
@@ -294,21 +350,30 @@ class WebSearchTest {
     }
 
     @Test fun resultParsingRejectsUnsafeLinksAndBoundsSources() {
-        val sources = TavilySearch.parse("""{"results":[
+        val body = """{"results":[
             {"title":"unsafe","url":"javascript:alert(1)","content":"ignore"},
             {"title":"Example","url":"https://example.org","content":"evidence","published_date":"2026-11-03"},
             {"title":"duplicate","url":"https://example.org","content":"same"},
-            {"title":"outside limit","url":"https://example.com","content":"ignored"}]}""")
+            {"title":"outside limit","url":"https://example.com","content":"backfilled"}]}"""
+        val sources = TavilySearch.parse(body, maxResults = 3, candidateLimit = 3)
         assertEquals(1, sources.size)
         assertEquals("Example", sources.single().title)
         assertEquals("2026-11-03", sources.single().publishedDate)
+        val backfilled = TavilySearch.parse(body, maxResults = 2, candidateLimit = 4)
+        assertEquals(listOf("Example", "outside limit"), backfilled.map { it.title })
+        val entries = (0 until 25).map { index ->
+            """{"title":"Story $index","url":"https://example$index.org/story","content":"Evidence $index"}"""
+        }
+        assertEquals(10, TavilySearch.parse("""{"results":[${entries.take(10).joinToString(",")}] }""").size)
+        assertEquals(TavilySearch.MAX_PROVIDER_RESULTS,
+            TavilySearch.parse("""{"results":[${entries.joinToString(",")}] }""").size)
         try { TavilySearch.parse("""{"results":[]}"""); fail("Empty evidence accepted") }
         catch (e: WebSearchFailure) { assertEquals(WebSearchFailure.Reason.RESULTS, e.reason) }
     }
 
     @Test fun liveTavilyReturnsSafeStructuredSources() = runBlocking {
         val sources = TavilySearch.search("Android developer documentation Jetpack Compose")
-        assertTrue(sources.size in 1..3)
+        assertTrue(sources.size in 1..TavilySearch.MAX_PROVIDER_RESULTS)
         assertTrue(sources.all { WebSource.safeUrl(it.url) && it.content.isNotBlank() })
     }
 

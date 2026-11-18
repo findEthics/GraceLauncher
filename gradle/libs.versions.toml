@@ -14,6 +14,7 @@ ksp = "2.3.10"
 materialKolor = "4.1.1"
 aboutLibraries = "15.1.1"
 navigation = "2.9.8"
+jsoup = "1.24.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -39,6 +40,7 @@ androidx-room-compiler = { group = "androidx.room", name = "room-compiler", vers
 material-kolor = { group = "com.materialkolor", name = "material-kolor", version.ref = "materialKolor" }
 aboutlibraries-core = { module = "com.mikepenz:aboutlibraries-core", version.ref = "aboutLibraries" }
 androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigation" }
+jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

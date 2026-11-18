@@ -87,18 +87,18 @@ class AssistantChatStateTest {
         assertEquals(listOf(second), chat.context(1000).map { it.id }) // Dropped context never silently returns.
     }
     @Test fun webBudgetPreservesInputCapacityAndRollsCompleteHistory() {
-        assertEquals(1272, AssistantController.CHAT_INPUT_BYTES - AssistantController.WEB_CONTEXT_BYTES)
-        assertEquals(2860, AssistantController.webContextBytes(32))
-        assertEquals(1800, AssistantController.webContextBytes(1272))
+        assertEquals(1272, AssistantController.CHAT_INPUT_TOKENS - AssistantController.WEB_CONTEXT_TOKENS)
+        assertEquals(2860, AssistantController.webContextTokens(32))
+        assertEquals(1800, AssistantController.webContextTokens(1272))
         val chat = AssistantChatState()
         val old = chat.begin("old", false)
         chat.update(old, "x".repeat(300), complete = true, inContext = true)
         chat.begin("x".repeat(1272), false)
-        assertTrue(chat.context(AssistantController.CHAT_INPUT_BYTES - 1272 - AssistantController.webContextBytes(1272)).isEmpty())
+        assertTrue(chat.context(AssistantController.CHAT_INPUT_TOKENS - 1272 - AssistantController.webContextTokens(1272)).isEmpty())
         assertTrue(chat.contextDropped)
         assertEquals(2, chat.turns.size)
         assertFalse(chat.turns.last().complete)
-        try { AssistantController.webContextBytes(1273); fail("Oversize web input accepted") }
+        try { AssistantController.webContextTokens(1273); fail("Oversize web input accepted") }
         catch (_: IllegalArgumentException) { }
     }
     @Test fun webRuntimeGuardKeepsStrictContextAndOutputAllowance() {
@@ -112,9 +112,9 @@ class AssistantChatStateTest {
         val now = java.time.ZonedDateTime.parse("2026-11-03T12:00:00Z")
         val sources = List(3) { WebSource("t".repeat(60), "https://example.org/$it", "é😀".repeat(200), "d".repeat(40)) }
         for (inputBytes in listOf(32, 1272)) {
-            val reserve = AssistantController.webContextBytes(inputBytes)
+            val reserve = AssistantController.webContextTokens(inputBytes)
             val result = AssistantController.webToolResult(sources, listOf(4, 5, 6), now, reserve / 2)
-            assertTrue(2 * result.toString().toByteArray(Charsets.UTF_8).size <= reserve)
+            assertTrue(2 * estimateTokens(result.toString()) <= reserve)
             val lines = result.getValue("untrusted_sources").split("\n", limit = 2)
             val blocks = lines[1].split("\n\n")
             assertEquals(3, blocks.size)
@@ -139,10 +139,10 @@ class AssistantChatStateTest {
         val now = java.time.ZonedDateTime.parse("2026-11-03T12:00:00Z")
         val sources = List(3) { WebSource("H".repeat(96), "https://example.org/$it", "Known complete fact. ".repeat(30), "d".repeat(40)) }
         for (inputBytes in listOf(32, 1272)) {
-            val budget = AssistantController.webContextBytes(inputBytes) / 2
+            val budget = AssistantController.webContextTokens(inputBytes) / 2
             val result = AssistantController.webToolResult(sources, listOf(1, 2, 3), now, budget)
-            val bytes = result.toString().toByteArray(Charsets.UTF_8).size
-            assertTrue(bytes <= budget)
+            val tokens = estimateTokens(result.toString())
+            assertTrue(tokens <= budget)
             val blocks = result.getValue("untrusted_sources").substringAfter("\n").split("\n\n")
             assertEquals(3, blocks.size)
             for ((index, block) in blocks.withIndex()) {
@@ -153,9 +153,33 @@ class AssistantChatStateTest {
                 assertTrue(excerpt.length > 3)
                 assertTrue(sources[index].content.startsWith(excerpt.removeSuffix("…")))
             }
-            println("Evidence budget=$budget, complete map=$bytes bytes, excerpt=" + blocks.first().substringAfter("\nExcerpt: "))
+            println("Evidence budget=$budget, complete map=$tokens est. tokens, excerpt=" + blocks.first().substringAfter("\nExcerpt: "))
         }
     }
+    @Test fun boundedWebEvidenceUsesAtMostThreeSourcesAndTheirDisplayedNumbers() {
+        val now = java.time.ZonedDateTime.parse("2026-11-03T12:00:00Z")
+        val sources = List(5) { index -> WebSource("Story $index", "https://example$index.org/$index", "Complete fact $index.") }
+
+        val selected = AssistantController.boundedWebToolResult(sources, listOf(1, 3, 4, 6, 9), now, 2860)
+
+        assertEquals(sources.take(3), selected.sources)
+        assertEquals(listOf(1, 3, 4), selected.numbers)
+        assertTrue(estimateTokens(selected.response.toString()) <= 2860)
+        for (number in selected.numbers) assertTrue(selected.response.toString().contains("[$number] Headline:"))
+    }
+
+    @Test fun boundedWebEvidenceReducesItsSourceCountWhenTheTokenBudgetIsTight() {
+        val now = java.time.ZonedDateTime.parse("2026-11-03T12:00:00Z")
+        val sources = List(3) { index -> WebSource("H".repeat(96), "https://example.org/$index",
+            "Complete fact. ".repeat(30), "d".repeat(40)) }
+
+        val selected = AssistantController.boundedWebToolResult(sources, listOf(1, 4, 9), now, 190)
+
+        assertTrue(selected.sources.size in 1..2)
+        assertEquals(listOf(1, 4).take(selected.sources.size), selected.numbers)
+        assertTrue(estimateTokens(selected.response.toString()) <= 190)
+    }
+
     @Test fun evidenceCutsMarkIncompleteWordsWithoutSplittingUnicode() {
         assertEquals("City Tehran.", AssistantController.evidencePrefix("City Tehran.", 12))
         assertEquals("City…", AssistantController.evidencePrefix("City Tehran.", 10))
@@ -178,19 +202,42 @@ class AssistantChatStateTest {
         assertTrue(chat.context(1000).isEmpty())
     }
 
-    @Test fun replayIncludesNumberedHeadlinesAndDomainsAndBudgetsTheirBytes() {
+    @Test fun wikipediaSummaryAttributionRequiresAnExplicitCompletedSourcedWikiOutcome() {
+        val source = WebSource("Ada", "https://en.wikipedia.org/wiki/Ada", "Evidence", provider = ChatSource.WIKIPEDIA)
+        val chat = AssistantChatState().apply { this.source = ChatSource.WIKIPEDIA }
+        val pending = chat.begin("Ada?", false)
+        chat.searchDetails(pending, listOf(source), "")
+        chat.update(pending, "Partial response")
+        assertFalse(chat.turns.single().wikipediaSummaryGenerated)
+        assertFalse(chat.turns.single().showWikipediaSummaryAttribution)
+        chat.update(pending, "Supported fact [1]", complete = true, inContext = true, wikipediaSummaryGenerated = true)
+        assertTrue(chat.turns.single().showWikipediaSummaryAttribution)
+
+        val cancelled = chat.begin("More?", false)
+        chat.searchDetails(cancelled, listOf(source), "")
+        chat.update(cancelled, "Cancelled; nothing executed.", complete = true)
+        assertFalse(chat.turns.last().wikipediaSummaryGenerated)
+        assertFalse(chat.turns.last().showWikipediaSummaryAttribution)
+        assertFalse(chat.turns.last().copy(complete = false).copy(wikipediaSummaryGenerated = true).showWikipediaSummaryAttribution)
+        assertFalse(chat.turns.last().copy(sources = emptyList(), wikipediaSummaryGenerated = true).showWikipediaSummaryAttribution)
+        assertFalse(ChatTurn(100, "Hello", false).wikipediaSummaryGenerated)
+        assertFalse(ChatTurn(101, "Offline", false, "Hi", complete = true).showWikipediaSummaryAttribution)
+    }
+
+    @Test fun replayIncludesNumberedHeadlinesAndDomainsAndBudgetsTheirTokens() {
         val chat = AssistantChatState()
         val id = chat.begin("news", false)
         chat.searchDetails(id, listOf(WebSource("First story", "https://example.org/1", "evidence"),
             WebSource("Second story", "https://example.org/2", "evidence")), "")
         chat.update(id, "Two reports [1] [2]", complete = true, inContext = true)
         val expected = "Two reports [1] [2]\nSources: [1]First story (example.org);[2]Second story (example.org)"
-        val bytes = "news".toByteArray().size + expected.toByteArray().size + 16
-        val turn = chat.context(bytes).single()
+        // The +64 (response) / +16 (replay) allowances keep their values; in tokens the response+64 side can now be the larger one.
+        val tokens = estimateTokens("news") + maxOf(estimateTokens("Two reports [1] [2]") + 64, estimateTokens(expected) + 16)
+        val turn = chat.context(tokens).single()
         assertEquals(expected, AssistantController.historyResponse(turn))
-        assertEquals(bytes, AssistantController.usedHistoryBytes(listOf(turn)))
+        assertEquals(tokens, AssistantController.usedHistoryTokens(listOf(turn)))
         assertEquals("Two reports [1] [2]", turn.response)
-        assertTrue(chat.context(bytes - 1).isEmpty())
+        assertTrue(chat.context(tokens - 1).isEmpty())
         assertTrue(chat.contextDropped)
     }
 
@@ -200,7 +247,7 @@ class AssistantChatStateTest {
             for (warning in listOf("", "Search failed")) {
                 val turn = ChatTurn(1, "request", false, "answer", sources = sources, searchWarning = warning)
                 val replay = AssistantController.historyResponse(turn)
-                assertTrue(replay.toByteArray(Charsets.UTF_8).size <= turn.response.toByteArray(Charsets.UTF_8).size + 120)
+                assertTrue(estimateTokens(replay) <= estimateTokens(turn.response) + 120)
                 assertFalse(replay.contains('\uFFFD'))
                 assertTrue(replay.contains("answer"))
                 if (replay.contains("\nSources: ")) {
@@ -221,10 +268,10 @@ class AssistantChatStateTest {
         val offline = ChatTurn(3, "offline", false, "answer")
         val history = listOf(first, latest, offline)
         val expected = history.sumOf { turn ->
-            turn.request.toByteArray().size + maxOf(turn.response.toByteArray().size + 64,
-                AssistantController.historyResponse(turn, if (turn.id == 2L) 120 else 48).toByteArray().size + 16)
+            estimateTokens(turn.request) + maxOf(estimateTokens(turn.response) + 64,
+                estimateTokens(AssistantController.historyResponse(turn, if (turn.id == 2L) 120 else 48)) + 16)
         }
-        assertEquals(expected, AssistantController.usedHistoryBytes(history))
+        assertEquals(expected, AssistantController.usedHistoryTokens(history))
         assertTrue(AssistantController.historyResponse(latest).contains("(example.org)"))
     }
 }

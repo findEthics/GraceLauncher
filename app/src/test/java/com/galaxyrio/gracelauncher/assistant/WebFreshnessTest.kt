@@ -101,10 +101,11 @@ class WebFreshnessTest {
     }
 
     @Test fun concreteArticlesBeatHubsAndEqualRankKeepsProviderOrder() {
-        val article = source("Concrete report").copy(content = "A substantive complete report. ".repeat(8))
+        val article = source("Concrete report").copy(url = "https://example.org/article", content = "A substantive complete report. ".repeat(8))
         val hubs = listOf("topics/world", "where/germany", "category/world", "tag/news", "all-time-winners", "results/2025/")
             .map { article.copy(url = "https://example.org/$it") } +
-            listOf(article.copy(title = "Germany - BBC News"), article.copy(title = "Latest News, Germany"))
+            listOf(article.copy(title = "Germany - BBC News", url = "https://example.org/bbc-news"),
+                article.copy(title = "Latest News, Germany", url = "https://example.org/latest"))
         val first = article.copy(title = "City opens rail line - BBC News", url = "https://example.com/a")
         val second = article.copy(url = "https://example.com/c")
         assertEquals(listOf(first, second), TavilySearch.rankedSources(hubs + first + second).take(2))
@@ -114,10 +115,10 @@ class WebFreshnessTest {
     }
 
     @Test fun publicationYearDateAndSubstantiveExcerptsImproveCandidateRank() {
-        val undated = source("Undated short").copy(publishedDate = null)
-        val substantive = undated.copy(title = "Undated substantive", content = "Complete fact. ".repeat(12))
-        val dated = source("Dated").copy(publishedDate = "2025-01-01")
-        val recent = source("Recent").copy(publishedDate = "${java.time.Year.now().value}-01-01")
+        val undated = source("Undated short").copy(url = "https://example.org/undated", publishedDate = null)
+        val substantive = undated.copy(title = "Undated substantive", url = "https://example.org/substantive", content = "Complete fact. ".repeat(12))
+        val dated = source("Dated").copy(url = "https://example.org/dated", publishedDate = "2025-01-01")
+        val recent = source("Recent").copy(url = "https://example.org/recent", publishedDate = "${java.time.Year.now().value}-01-01")
         assertEquals(listOf(recent, dated, substantive, undated), TavilySearch.rankedSources(listOf(undated, substantive, dated, recent)))
     }
 
@@ -134,5 +135,32 @@ class WebFreshnessTest {
         val differentHost = first.copy(url = "https://example.com/tokyo")
         val differentTitle = first.copy(title = "Tokyo metropolitan population", url = "https://www.worldpopulationreview.com/metro/tokyo")
         assertEquals(listOf(first, differentHost, differentTitle), TavilySearch.rankedSources(listOf(first, duplicate, differentHost, differentTitle)))
+    }
+
+    @Test fun replySelectionDeduplicatesAndFiltersBeforeFillingTheRemainingSlots() {
+        val existing = List(8) { index -> source("Report $index").copy(
+            url = "https://first.example/story/$index", content = "Substantive evidence for report $index. ".repeat(5)) }
+        val duplicate = existing.first().copy(title = "  REPORT   0  ", url = "https://www.first.example/alternate")
+        val invalid = source("Unsafe").copy(url = "javascript:alert(1)")
+        val additions = List(5) { index -> source("New report $index").copy(
+            url = "https://new.example/story/$index", content = "Substantive new evidence $index.") }
+
+        val selected = TavilySearch.selectReplySources(existing, listOf(duplicate, invalid) + additions)
+
+        assertEquals(existing.map { it.url } + additions.take(2).map { it.url }, selected.displayed.map { it.url })
+        assertEquals(listOf(1, 9, 10), selected.numbers)
+        assertEquals(listOf(existing.first().url) + additions.take(2).map { it.url }, selected.evidence.map { it.url })
+    }
+
+    @Test fun replySelectionCapsTenDisplayedResultsAndThreeEvidenceItemsPerQuery() {
+        val candidates = List(20) { index -> source("Story $index").copy(
+            url = "https://example$index.org/story", content = "Substantive evidence for story $index.") }
+
+        val selected = TavilySearch.selectReplySources(emptyList(), candidates)
+
+        assertEquals(10, selected.displayed.size)
+        assertEquals(listOf(1, 2, 3), selected.numbers)
+        assertEquals(candidates.take(3).map { it.url }, selected.evidence.map { it.url })
+        assertTrue(selected.displayed.all { WebSource.safeUrl(it.url) && it.content.isNotBlank() })
     }
 }

@@ -11,7 +11,8 @@ import java.util.Locale
 import kotlinx.coroutines.*
 import org.json.JSONObject
 
-internal data class WebSource(val title: String, val url: String, val content: String, val publishedDate: String? = null) {
+internal data class WebSource(val title: String, val url: String, val content: String, val publishedDate: String? = null,
+    val provider: ChatSource = ChatSource.WEB) {
     companion object {
         fun safeUrl(value: String): Boolean = runCatching {
             val uri = URI(value)
@@ -34,7 +35,7 @@ internal data class SearchParams(val topic: String? = null, val timeRange: Strin
 
 internal object WebToolText {
     private const val prefix = "<|tool_call>call:search_web>"
-    private val markerStarts = listOf("<|", "|>", "tool_call", "call:search_web")
+    private val markerStarts = listOf("<|", "|>", "tool_call", "call:search_web", "call:query_wikipedia")
 
     fun suspicious(text: String): Boolean = markerStarts.any { text.contains(it, ignoreCase = true) } ||
         listOf("<", "<|", "<|tool_call>call:").any { marker ->
@@ -57,6 +58,11 @@ internal class WebReplyBuffer {
 
 /** No redirects, retries, raw error bodies, query logs, or transcript uploads. */
 internal object TavilySearch {
+    internal const val MAX_PROVIDER_RESULTS = 20
+    internal const val MAX_REPLY_RESULTS = 10
+    internal const val MAX_EVIDENCE_PER_QUERY = 3
+    internal const val MAX_RESPONSE_BYTES = 65_536
+
     internal fun newsTimeRange(query: String): String? =
         if (Regex("\\b(news|headlines?)\\b", RegexOption.IGNORE_CASE).containsMatchIn(query)) {
             if (Regex("\\b(today|tonight|latest|breaking)\\b", RegexOption.IGNORE_CASE).containsMatchIn(query)) "day" else "week"
@@ -116,7 +122,7 @@ internal object TavilySearch {
                                 setRequestProperty("Content-Type", "application/json")
                             }
                             val request = JSONObject().put("query", query).put("search_depth", "basic")
-                                .put("max_results", 6).put("chunks_per_source", 2).put("include_answer", false)
+                                .put("max_results", MAX_PROVIDER_RESULTS).put("chunks_per_source", 2).put("include_answer", false)
                                 .put("include_raw_content", false).put("include_images", false).put("include_published_date", true)
                             val params = resolveSearchParams(query)
                             params.topic?.let { request.put("topic", it) }
@@ -132,7 +138,7 @@ internal object TavilySearch {
                                 else -> throw WebSearchFailure(WebSearchFailure.Reason.NETWORK)
                             }
                             val bytes = connection.inputStream.use { input ->
-                                val buffer = ByteArray(65_537)
+                                val buffer = ByteArray(MAX_RESPONSE_BYTES + 1)
                                 var size = 0
                                 while (size < buffer.size) {
                                     currentCoroutineContext().ensureActive()
@@ -142,8 +148,8 @@ internal object TavilySearch {
                                 }
                                 buffer.copyOf(size)
                             }
-                            if (bytes.size > 65_536) throw WebSearchFailure(WebSearchFailure.Reason.RESULTS)
-                            parse(String(bytes, Charsets.UTF_8), maxResults = 3, candidateLimit = 6)
+                            if (bytes.size > MAX_RESPONSE_BYTES) throw WebSearchFailure(WebSearchFailure.Reason.RESULTS)
+                            parse(String(bytes, Charsets.UTF_8), maxResults = MAX_PROVIDER_RESULTS, candidateLimit = MAX_PROVIDER_RESULTS)
                         } finally { cancellation.cancel(); connection.disconnect() }
                     }
                 }
@@ -174,27 +180,73 @@ internal object TavilySearch {
         val hubs = Regex("/(?:topics?|where|category|tag)(?:/|$)|all-time|/results/\\d{4}(?:/|$)", RegexOption.IGNORE_CASE)
         val hubTitle = Regex("^(?:(?:${searchCountries.joinToString("|")}|UK|US) - BBC News|Latest News,.*)$", RegexOption.IGNORE_CASE)
         val currentYear = Regex("\\b${java.time.Year.now().value}\\b")
-        return sources.sortedWith(compareBy<WebSource> {
+        val ranked = sources.filter { WebSource.safeUrl(it.url) && it.title.isNotBlank() && it.content.isNotBlank() }
+            .sortedWith(compareBy<WebSource> {
             listOf("[[[", "]]]", "^^^").any(it.title::contains) || it.title.any { character -> character in '\uFF01'..'\uFF5E' }
         }.thenBy { hubs.containsMatchIn(URI(it.url).path.orEmpty()) || hubTitle.matches(it.title) }
             .thenByDescending { it.publishedDate?.let(currentYear::containsMatchIn) == true }
             .thenByDescending { it.publishedDate != null }
             .thenByDescending { it.content.length >= 120 })
-            .distinctBy { URI(it.url).host.lowercase(Locale.ROOT).removePrefix("www.") to
-                it.title.trim().replace(Regex("\\s+"), " ").lowercase(Locale.ROOT) }
+        val unique = mutableListOf<WebSource>()
+        ranked.forEach { candidate -> if (unique.none { sameSource(it, candidate) }) unique += candidate }
+        return unique
     }
 
-    internal fun parse(body: String, maxResults: Int = 3, candidateLimit: Int = maxResults): List<WebSource> {
+    private fun normalizedHost(url: String) = URI(url).host?.lowercase(Locale.ROOT)?.removePrefix("www.").orEmpty()
+    private fun normalizedTitle(title: String) = title.trim().replace(Regex("\\s+"), " ").lowercase(Locale.ROOT)
+    private fun normalizedUrl(url: String): String {
+        val uri = URI(url).normalize()
+        val scheme = uri.scheme.lowercase(Locale.ROOT)
+        val port = when {
+            uri.port < 0 || scheme == "https" && uri.port == 443 || scheme == "http" && uri.port == 80 -> ""
+            else -> ":${uri.port}"
+        }
+        return "$scheme://${normalizedHost(url)}$port${uri.rawPath.orEmpty().ifBlank { "/" }}" +
+            (uri.rawQuery?.let { "?$it" } ?: "")
+    }
+
+    internal fun sameSource(first: WebSource, second: WebSource): Boolean {
+        val firstHost = normalizedHost(first.url)
+        val secondHost = normalizedHost(second.url)
+        return normalizedUrl(first.url) == normalizedUrl(second.url) ||
+            firstHost == secondHost && normalizedTitle(first.title) == normalizedTitle(second.title)
+    }
+
+    internal data class ReplySelection(
+        val displayed: List<WebSource>, val evidence: List<WebSource>, val numbers: List<Int>,
+    )
+
+    /** Keep exposed numbers stable while appending ranked, deduplicated candidates from a refined query. */
+    internal fun selectReplySources(displayed: List<WebSource>, candidates: List<WebSource>): ReplySelection {
+        require(displayed.size <= MAX_REPLY_RESULTS)
+        val ranked = rankedSources(candidates)
+        val selected = displayed.toMutableList()
+        for (candidate in ranked) {
+            if (selected.size >= MAX_REPLY_RESULTS) break
+            if (selected.none { sameSource(it, candidate) }) selected += candidate
+        }
+        val evidenceIndices = ranked.mapNotNull { candidate ->
+            selected.indexOfFirst { sameSource(it, candidate) }.takeIf { it >= 0 }
+        }.distinct().take(MAX_EVIDENCE_PER_QUERY)
+        return ReplySelection(selected, evidenceIndices.map(selected::get), evidenceIndices.map { it + 1 })
+    }
+
+    internal fun parse(body: String, maxResults: Int = MAX_PROVIDER_RESULTS, candidateLimit: Int = maxResults): List<WebSource> {
+        if (body.toByteArray(Charsets.UTF_8).size > MAX_RESPONSE_BYTES) throw WebSearchFailure(WebSearchFailure.Reason.RESULTS)
         val results = JSONObject(body).getJSONArray("results")
-        val sources = (0 until minOf(results.length(), candidateLimit, 8)).mapNotNull { index ->
+        val resultLimit = maxResults.coerceIn(0, MAX_PROVIDER_RESULTS)
+        val candidateCount = candidateLimit.coerceIn(0, MAX_PROVIDER_RESULTS)
+        val sources = (0 until minOf(results.length(), candidateCount)).mapNotNull { index ->
             val item = results.optJSONObject(index) ?: return@mapNotNull null
             val url = item.optString("url")
             val content = cleanExcerpt(item.optString("content"))
             if (!WebSource.safeUrl(url) || content.isBlank()) null
-            else WebSource(item.optString("title").filterNot { it.isISOControl() || it in '\u202a'..'\u202e' || it in '\u2066'..'\u2069' }
-                .take(160).ifBlank { URI(url).host }, url, content, publishedDate(item.optString("published_date", "")))
-        }.distinctBy { it.url }
-        return (if (candidateLimit > maxResults) rankedSources(sources) else sources)
-            .take(maxResults).ifEmpty { throw WebSearchFailure(WebSearchFailure.Reason.RESULTS) }
+            else {
+                val title = item.optString("title").filterNot { it.isISOControl() || it in '\u202a'..'\u202e' || it in '\u2066'..'\u2069' }
+                WebSource(AssistantController.utf8Prefix(title, 640).ifBlank { URI(url).host.orEmpty() }, url, content,
+                    publishedDate(item.optString("published_date", "")))
+            }
+        }
+        return rankedSources(sources).take(resultLimit).ifEmpty { throw WebSearchFailure(WebSearchFailure.Reason.RESULTS) }
     }
 }

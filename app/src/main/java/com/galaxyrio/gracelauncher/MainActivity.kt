@@ -62,6 +62,8 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra(EXTRA_EDIT_WIDGET, false)) { widgetEditRequest++; intent.removeExtra(EXTRA_EDIT_WIDGET) }
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
             launcherViewModel.magic.close()
+            // HOME removes the Compose editor; clear its platform focus before the next idle shortcut.
+            currentFocus?.takeIf { it.onCheckIsTextEditor() }?.clearFocus()
             launcherViewModel.requestReturnHome()
             appTransitions.onHomeIntent(intent)
         }

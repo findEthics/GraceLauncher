@@ -25,16 +25,19 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -88,6 +91,7 @@ internal fun AssistantChatWindow(
     val send = { if (!busy && chat.draft.isNotBlank()) onSend() }
     val messageDescription = stringResource(R.string.assistant_message)
     val removeWebDescription = stringResource(R.string.assistant_remove_web_search)
+    val removeWikipediaDescription = stringResource(R.string.assistant_remove_wikipedia)
     val toolsDescription = stringResource(R.string.assistant_tools)
     val uriHandler = LocalUriHandler.current
     var toolsExpanded by remember { mutableStateOf(false) }
@@ -111,17 +115,34 @@ internal fun AssistantChatWindow(
                             Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                                 if (turn.action) Text(stringResource(R.string.assistant_action_result), style = MaterialTheme.typography.labelSmall)
                                 if (turn.webSearch) Text(stringResource(R.string.assistant_web_search), style = MaterialTheme.typography.labelSmall)
+                                if (turn.source == ChatSource.WIKIPEDIA) Text(stringResource(R.string.assistant_wikipedia), style = MaterialTheme.typography.labelSmall)
                                 if (turn.searchWarning.isNotBlank()) Text(turn.searchWarning,
                                     Modifier.testTag("assistant_search_warning:${turn.id}"), color = MaterialTheme.colorScheme.error,
                                     style = MaterialTheme.typography.bodySmall)
                                 Text(turn.response.ifBlank { stringResource(R.string.assistant_processing) },
                                     Modifier.testTag("assistant_response:${turn.id}"))
+                                if (turn.webSearch && turn.complete && turn.inContext && turn.response.isNotBlank() &&
+                                    turn.searchWarning.isBlank() && turn.sources.isNotEmpty()) {
+                                    Text(pluralStringResource(R.plurals.assistant_web_results_disclosure, turn.sources.size, turn.sources.size),
+                                        Modifier.padding(top = 8.dp).testTag("assistant_web_results_disclosure:${turn.id}"),
+                                        style = MaterialTheme.typography.bodySmall)
+                                }
                                 turn.sources.forEachIndexed { index, source ->
-                                    TextButton(onClick = { if (WebSource.safeUrl(source.url)) runCatching { uriHandler.openUri(source.url) } },
+                                    if (turn.webSearch) WebSourceCard(turn.id, index, turn.number(index), source, uriHandler)
+                                    else TextButton(onClick = { if (WebSource.safeUrl(source.url)) runCatching { uriHandler.openUri(source.url) } },
                                         modifier = Modifier.testTag("assistant_source:${turn.id}:$index")) {
-                                        Text("[${index + 1}] ${source.title} — ${URI(source.url).host}" +
+                                        Text("[${turn.number(index)}] ${source.title} — ${URI(source.url).host}" +
+                                            (if (source.provider == ChatSource.WIKIPEDIA) " — " + stringResource(R.string.assistant_wikipedia_contributors) else "") +
                                             (formatPublishedDate(source.publishedDate)?.let { " — $it" } ?: ""), style = MaterialTheme.typography.bodySmall)
                                     }
+                                }
+                                if (turn.showWikipediaSummaryAttribution) {
+                                    Text(stringResource(R.string.assistant_wikipedia_adapted), style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.testTag("assistant_wikipedia_attribution:${turn.id}"))
+                                }
+                                if (turn.source == ChatSource.WIKIPEDIA && turn.sources.isNotEmpty()) {
+                                    TextButton(onClick = { runCatching { uriHandler.openUri(WikipediaSearch.LICENSE_URL) } },
+                                        modifier = Modifier.testTag("assistant_wikipedia_license:${turn.id}")) { Text("CC BY-SA 4.0") }
                                 }
                             }
                         }
@@ -132,11 +153,11 @@ internal fun AssistantChatWindow(
                 Text(status, Modifier.padding(horizontal = 16.dp).testTag("assistant_status"), style = MaterialTheme.typography.bodySmall)
             Column(Modifier.fillMaxWidth().padding(12.dp)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (chat.webSearchEnabled) InputChip(selected = true,
-                        onClick = { chat.webSearchEnabled = false },
-                        label = { Text(stringResource(R.string.assistant_web_search)) }, trailingIcon = { Text("×") },
-                        modifier = Modifier.testTag("assistant_web_chip")
-                            .semantics { contentDescription = removeWebDescription })
+                    if (chat.source != ChatSource.NONE) InputChip(selected = true,
+                        onClick = { chat.source = ChatSource.NONE },
+                        label = { Text(stringResource(if (chat.source == ChatSource.WIKIPEDIA) R.string.assistant_wikipedia else R.string.assistant_web_search)) }, trailingIcon = { Text("×") },
+                        modifier = Modifier.testTag(if (chat.source == ChatSource.WIKIPEDIA) "assistant_wikipedia_chip" else "assistant_web_chip")
+                            .semantics { contentDescription = if (chat.source == ChatSource.WIKIPEDIA) removeWikipediaDescription else removeWebDescription })
                 }
                 OutlinedTextField(
                     value = chat.input, onValueChange = { chat.input = it },
@@ -164,12 +185,14 @@ internal fun AssistantChatWindow(
                             }
                             DropdownMenu(expanded = toolsExpanded, onDismissRequest = { toolsExpanded = false },
                                 shape = RoundedCornerShape(28.dp), modifier = Modifier.testTag("assistant_tools_menu")) {
-                                DropdownMenuItem(text = { Text(stringResource(R.string.assistant_web_search)) },
-                                    leadingIcon = { Checkbox(checked = chat.webSearchEnabled, onCheckedChange = null) },
-                                    onClick = { chat.webSearchEnabled = !chat.webSearchEnabled; toolsExpanded = false },
-                                    modifier = Modifier.testTag("assistant_web_search_option").semantics {
-                                        role = Role.Checkbox; toggleableState = ToggleableState(chat.webSearchEnabled)
-                                    })
+                                for (source in listOf(ChatSource.WEB, ChatSource.WIKIPEDIA)) {
+                                    DropdownMenuItem(text = { Text(stringResource(if (source == ChatSource.WIKIPEDIA) R.string.assistant_wikipedia else R.string.assistant_web_search)) },
+                                        leadingIcon = { Checkbox(checked = chat.source == source, onCheckedChange = null) },
+                                        onClick = { chat.source = if (chat.source == source) ChatSource.NONE else source; toolsExpanded = false },
+                                        modifier = Modifier.testTag(if (source == ChatSource.WIKIPEDIA) "assistant_wikipedia_option" else "assistant_web_search_option").semantics {
+                                            role = Role.Checkbox; toggleableState = ToggleableState(chat.source == source)
+                                        })
+                                }
                             }
                         }
                     },
@@ -187,6 +210,54 @@ internal fun AssistantChatWindow(
                         }
                     }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WebSourceCard(turnId: Long, index: Int, number: Int, source: WebSource, uriHandler: androidx.compose.ui.platform.UriHandler) {
+    var expanded by remember(turnId, index) { mutableStateOf(false) }
+    var titleOverflow by remember(source.title) { mutableStateOf(false) }
+    var excerptOverflow by remember(source.content) { mutableStateOf(false) }
+    val showMore = stringResource(R.string.assistant_source_show_more)
+    val showLess = stringResource(R.string.assistant_source_show_less)
+    val openSource = stringResource(R.string.assistant_source_open)
+    val expandedLabel = stringResource(R.string.assistant_source_expanded)
+    val collapsedLabel = stringResource(R.string.assistant_source_collapsed)
+    val host = runCatching { URI(source.url).host.orEmpty() }.getOrDefault("")
+    val date = formatPublishedDate(source.publishedDate)
+    val metadata = listOf(host, date.orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
+    Surface(
+        Modifier.fillMaxWidth().testTag("assistant_source_card:$turnId:$index"),
+        shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("[$number] ${source.title}", Modifier.testTag("assistant_source_title:$turnId:$index"),
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = if (expanded) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis,
+                onTextLayout = { titleOverflow = it.hasVisualOverflow })
+            if (metadata.isNotBlank()) Text(metadata, Modifier.testTag("assistant_source_metadata:$turnId:$index"),
+                style = MaterialTheme.typography.bodySmall)
+            Text(source.content, Modifier.testTag("assistant_source_excerpt:$turnId:$index"),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = if (expanded) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis,
+                onTextLayout = { excerptOverflow = it.hasVisualOverflow })
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                if (expanded || titleOverflow || excerptOverflow) {
+                    val label = if (expanded) showLess else showMore
+                    TextButton(onClick = { expanded = !expanded },
+                        modifier = Modifier.heightIn(min = 48.dp).testTag("assistant_source_expand:$turnId:$index")
+                            .semantics { contentDescription = label; stateDescription = if (expanded) expandedLabel else collapsedLabel }) {
+                        Text(label)
+                    }
+                }
+                TextButton(onClick = { if (WebSource.safeUrl(source.url)) runCatching { uriHandler.openUri(source.url) } },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("assistant_source_open:$turnId:$index")
+                        .semantics { contentDescription = openSource }) {
+                    Text(openSource)
+                }
             }
         }
     }

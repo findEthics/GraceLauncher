@@ -21,8 +21,8 @@ android {
         applicationId = "com.galaxyrio.gracelauncher"
         minSdk = 28
         targetSdk = 37
-        versionCode = 15
-        versionName = "1.2.7"
+        versionCode = 17
+        versionName = "1.2.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TAVILY_API_KEY", "\"$tavilyKey\"")
@@ -86,8 +86,10 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.material.kolor)
     implementation(libs.aboutlibraries.core)
+    implementation(libs.jsoup)
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303") // JVM unit tests only: android.jar stubs org.json (returnDefaultValues), real parser needed for Wikipedia fixtures
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

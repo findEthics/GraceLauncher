@@ -6,3 +6,5 @@
 }
 -keepattributes RuntimeVisibleAnnotations,RuntimeInvisibleAnnotations,RuntimeVisibleParameterAnnotations,MethodParameters,Signature,InnerClasses,EnclosingMethod
 -keep class com.google.ai.edge.litertlm.** { *; }
+-keep class com.galaxyrio.gracelauncher.assistant.WikipediaTools { *; }
+-keep class com.galaxyrio.gracelauncher.assistant.WikipediaQueryTools { *; }

@@ -1,8 +1,10 @@
 package com.galaxyrio.gracelauncher.assistant
 
+import android.content.Intent
 import android.view.KeyEvent
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import com.galaxyrio.gracelauncher.magic.MagicController
 import com.galaxyrio.gracelauncher.magic.MagicDataSource
@@ -104,6 +106,45 @@ class AssistantHomeKeyboardTest {
         compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
         compose.onNodeWithTag("assistant_chat_window").assertDoesNotExist()
         compose.runOnUiThread { assertTrue(assistant.chat.turns.isEmpty()); assertEquals("", assistant.chat.draft) }
+    }
+
+    @Test fun pauseResumeThenHomeAllowsSpaceToReopenFocusedChatWithDraftAndHistory() {
+        compose.onNodeWithTag("assistant_chat_button").performClick()
+        compose.runOnUiThread {
+            val turn = assistant.chat.begin("Mariana Trench", false)
+            assistant.chat.update(turn, "Earlier reply", complete = true, inContext = true)
+        }
+        compose.onNodeWithTag("assistant_chat_input").performTextInput("space reentry draft")
+        compose.runOnUiThread { assertTrue(compose.activity.currentFocus?.onCheckIsTextEditor() == true) }
+
+        // Model an external source activity's pause/resume, then deliver the real HOME intent path.
+        compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        compose.runOnUiThread {
+            compose.activity.startActivity(
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                    .setClass(compose.activity, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            )
+        }
+        compose.waitUntil(10_000) { !assistant.chat.visible && assistant.homeShortcutEligible }
+        compose.onNodeWithTag("assistant_chat_window").assertDoesNotExist()
+
+        compose.runOnUiThread {
+            assertEquals("space reentry draft", assistant.chat.draft)
+            assertFalse(compose.activity.currentFocus?.onCheckIsTextEditor() == true)
+            val space = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_SPACE, 0, 0)
+            assertTrue(compose.activity.dispatchKeyEvent(space))
+            assertEquals("space reentry draft", assistant.chat.draft)
+            assertTrue(compose.activity.dispatchKeyEvent(KeyEvent.changeTimeRepeat(space, 1, 1)))
+            assertTrue(compose.activity.dispatchKeyEvent(KeyEvent.changeAction(space, KeyEvent.ACTION_UP)))
+            val suffix = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_X)
+            assertTrue(compose.activity.dispatchKeyEvent(suffix))
+            assertTrue(compose.activity.dispatchKeyEvent(KeyEvent.changeAction(suffix, KeyEvent.ACTION_UP)))
+        }
+        compose.onNodeWithTag("assistant_chat_input").assertTextContains("space reentry draftx").assertIsFocused()
+        compose.onNodeWithText("Earlier reply").performScrollTo().assertIsDisplayed()
+        compose.runOnUiThread { assertEquals("space reentry draftx", assistant.chat.draft) }
     }
 
     @Test fun spaceOpensWithoutAddingTextAndHeldSpaceIsConsumedOnlyForTheOpener() {

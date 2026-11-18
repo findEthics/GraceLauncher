@@ -5,10 +5,17 @@ import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.unit.Density
 import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.platform.app.InstrumentationRegistry
 import com.galaxyrio.gracelauncher.R
@@ -21,6 +28,74 @@ import org.junit.Test
 
 class AssistantUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Test fun wikipediaSelectionIsExclusiveAndAttributionSurvivesSwitchToWeb() {
+        val chat = AssistantChatState().apply { draft = "keep draft" }
+        compose.setContent { MaterialTheme {
+            AssistantChatWindow(chat, false, true, "", onSend = {}, onStop = {}, onClose = chat::clear)
+        } }
+        compose.onNodeWithTag("assistant_tools").performClick()
+        compose.onNodeWithTag("assistant_wikipedia_option").assertIsOff().performClick()
+        compose.onNodeWithTag("assistant_web_chip").assertDoesNotExist()
+        compose.onNodeWithTag("assistant_wikipedia_chip").assertIsSelected()
+            .assertContentDescriptionEquals(compose.activity.getString(R.string.assistant_remove_wikipedia))
+        compose.onNodeWithTag("assistant_wikipedia_chip").performClick().assertDoesNotExist()
+        compose.onNodeWithTag("assistant_tools").performClick()
+        compose.onNodeWithTag("assistant_web_search_option").assertIsOff()
+        compose.onNodeWithTag("assistant_wikipedia_option").assertIsOff().performClick()
+        var turn = 0L
+        compose.runOnIdle {
+            assertEquals("keep draft", chat.draft)
+            turn = chat.begin("Ada?", false)
+            chat.searchDetails(turn, listOf(WebSource("Ada", "https://en.wikipedia.org/wiki/Ada_Lovelace", "evidence", provider = ChatSource.WIKIPEDIA)), "")
+            chat.update(turn, "Supported fact [1]", complete = true, wikipediaSummaryGenerated = true)
+            chat.source = ChatSource.WEB
+        }
+        closeSoftKeyboard()
+        compose.onNodeWithTag("assistant_wikipedia_attribution:$turn").assertIsDisplayed()
+        compose.onNodeWithTag("assistant_wikipedia_license:$turn").assertHasClickAction()
+        compose.onNodeWithTag("assistant_source:$turn:0").assertTextContains("Wikipedia contributors", substring = true)
+        compose.onNodeWithTag("assistant_web_chip").assertIsSelected()
+    }
+
+    @Test fun wikipediaFailuresKeepSourceCreditsWithoutClaimingAnAdaptedSummary() {
+        val source = WebSource("Ada", "https://en.wikipedia.org/wiki/Ada", "Evidence", provider = ChatSource.WIKIPEDIA)
+        val chat = AssistantChatState().apply { this.source = ChatSource.WIKIPEDIA }
+        val failedTurns = listOf(
+            "Could not finish the local reply. No action performed.",
+            WikipediaSearch.INABILITY,
+            "Cancelled; nothing executed.",
+        ).mapIndexed { index, response ->
+            val turn = chat.begin("Question $index", false)
+            chat.searchDetails(turn, listOf(source), "")
+            chat.update(turn, response, complete = true)
+            turn
+        }
+        val streaming = chat.begin("Streaming", false)
+        chat.searchDetails(streaming, listOf(source), "")
+        chat.update(streaming, "Partial response")
+        val emptyWiki = chat.begin("No current source", false)
+        chat.update(emptyWiki, WikipediaSearch.INABILITY, complete = true)
+        chat.source = ChatSource.NONE
+        val toolFree = chat.begin("Hello", false)
+        chat.update(toolFree, "Hi", complete = true)
+
+        compose.setContent { MaterialTheme {
+            AssistantChatWindow(chat, false, true, "", onSend = {}, onStop = {}, onClose = {})
+        } }
+        closeSoftKeyboard()
+        for (turn in failedTurns + streaming) {
+            compose.onNodeWithTag("assistant_response:$turn").performScrollTo()
+            compose.onNodeWithTag("assistant_wikipedia_attribution:$turn").assertDoesNotExist()
+            compose.onNodeWithTag("assistant_wikipedia_license:$turn").assertHasClickAction()
+            compose.onNodeWithTag("assistant_source:$turn:0").assertTextContains("Wikipedia contributors", substring = true)
+        }
+        for (turn in listOf(emptyWiki, toolFree)) {
+            compose.onNodeWithTag("assistant_response:$turn").performScrollTo()
+            compose.onNodeWithTag("assistant_wikipedia_attribution:$turn").assertDoesNotExist()
+            compose.onNodeWithTag("assistant_wikipedia_license:$turn").assertDoesNotExist()
+        }
+    }
 
     @Test fun webSearchMenuSelectsPersistentRemovableChipWithoutEditingDraft() {
         val chat = AssistantChatState().apply { draft = "keep my draft" }
@@ -67,7 +142,8 @@ class AssistantUiTest {
         } }
         closeSoftKeyboard()
         compose.onNodeWithTag("assistant_search_warning:$turn").assertIsDisplayed()
-        compose.onNodeWithTag("assistant_source:$turn:0").assertHasClickAction().assertIsDisplayed()
+        compose.onNodeWithTag("assistant_source_card:$turn:0").assertIsDisplayed()
+        compose.onNodeWithTag("assistant_source_open:$turn:0").assertHasClickAction()
         compose.onNodeWithTag("assistant_response:$turn").assertTextEquals("Offline answer")
     }
 
@@ -76,14 +152,71 @@ class AssistantUiTest {
         val turn = chat.begin("news", false)
         chat.searchDetails(turn, listOf(WebSource("Dated", "https://example.org", "evidence", "2026-11-03"),
             WebSource("Undated", "https://example.com", "evidence")), "")
-        chat.update(turn, "Summary", complete = true)
+        chat.update(turn, "Summary", complete = true, inContext = true)
         compose.setContent { MaterialTheme {
             AssistantChatWindow(chat, false, true, "", onSend = {}, onStop = {}, onClose = chat::clear)
         } }
         closeSoftKeyboard()
         val date = formatPublishedDate("2026-11-03")!!
-        compose.onNodeWithTag("assistant_source:$turn:0").assertTextEquals("[1] Dated — example.org — $date")
-        compose.onNodeWithTag("assistant_source:$turn:1").assertTextEquals("[2] Undated — example.com")
+        compose.onNodeWithTag("assistant_source_card:$turn:0").assertIsDisplayed()
+        compose.onNodeWithTag("assistant_source_title:$turn:0").assertTextEquals("[1] Dated")
+        compose.onNodeWithTag("assistant_source_metadata:$turn:0").assertTextEquals("example.org · $date")
+        compose.onNodeWithTag("assistant_source_title:$turn:1").assertTextEquals("[2] Undated")
+        compose.onNodeWithTag("assistant_source_metadata:$turn:1").assertTextEquals("example.com")
+        compose.onNodeWithTag("assistant_source_expand:$turn:0").assertDoesNotExist()
+        compose.onNodeWithTag("assistant_web_results_disclosure:$turn").assertTextEquals("2 results · answer uses selected sources")
+    }
+
+    @Test fun webCardsKeepFullTextExpandLocallyAndOpenSeparateAccessibleLinks() {
+        val title = "A long headline that wraps naturally ".repeat(10)
+        val excerpt = "The provider excerpt includes supporting detail. ".repeat(20)
+        val url = "https://example.org/story"
+        val chat = AssistantChatState()
+        val turn = chat.begin("news", false)
+        chat.searchDetails(turn, listOf(WebSource(title, url, excerpt)), "")
+        chat.update(turn, "Answer", complete = true, inContext = true)
+        val opened = mutableListOf<String>()
+        var sends = 0
+        val handler = object : UriHandler { override fun openUri(uri: String) { opened += uri } }
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalUriHandler provides handler, LocalDensity provides Density(density.density, 1.5f)) {
+                MaterialTheme { AssistantChatWindow(chat, false, true, "", onSend = { sends++ }, onStop = {}, onClose = {}) }
+            }
+        }
+        closeSoftKeyboard()
+
+        compose.onNodeWithTag("assistant_source_title:$turn:0").assertTextEquals("[1] $title")
+        compose.onNodeWithTag("assistant_source_metadata:$turn:0").assertTextEquals("example.org")
+        compose.onNodeWithTag("assistant_source_excerpt:$turn:0").assertTextEquals(excerpt)
+        compose.onNodeWithTag("assistant_web_results_disclosure:$turn").assertTextEquals("1 result · answer uses a selected source")
+        val expand = compose.onNodeWithTag("assistant_source_expand:$turn:0")
+            .assertContentDescriptionEquals("Show more").assertHasClickAction()
+        assertEquals("Collapsed", expand.fetchSemanticsNode().config[SemanticsProperties.StateDescription])
+        val open = compose.onNodeWithTag("assistant_source_open:$turn:0")
+            .assertContentDescriptionEquals("Open source").assertHasClickAction()
+        val minTouch = 48f * compose.activity.resources.displayMetrics.density
+        assertTrue(expand.fetchSemanticsNode().boundsInRoot.height >= minTouch)
+        assertTrue(open.fetchSemanticsNode().boundsInRoot.height >= minTouch)
+        open.performClick()
+        compose.runOnIdle { assertEquals(listOf(url), opened); assertEquals(0, sends) }
+        expand.assertContentDescriptionEquals("Show more")
+        expand.performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        expand.performKeyInput { pressKey(Key.Enter) }
+        expand.assertContentDescriptionEquals("Show less")
+        assertEquals("Expanded", expand.fetchSemanticsNode().config[SemanticsProperties.StateDescription])
+        compose.runOnIdle { assertEquals(listOf(url), opened); assertEquals(0, sends) }
+    }
+
+    @Test fun webResultsDisclosureDoesNotClaimSynthesisWithoutACompletedAnswer() {
+        val chat = AssistantChatState()
+        val turn = chat.begin("news", false)
+        chat.searchDetails(turn, listOf(WebSource("Source", "https://example.org", "evidence")), "")
+        chat.update(turn, "", complete = false, inContext = true)
+        compose.setContent { MaterialTheme {
+            AssistantChatWindow(chat, false, true, "", onSend = {}, onStop = {}, onClose = {})
+        } }
+        compose.onNodeWithTag("assistant_web_results_disclosure:$turn").assertDoesNotExist()
     }
 
     @Test fun offlineAssistantExposesGemma4WithoutSpeechSetupOrKeyboardInstructions() {
