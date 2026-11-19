@@ -589,7 +589,6 @@
     <string name="assistant_model_switch_action">Switch</string>
     <string name="assistant_model_download_action">Download</string>
     <string name="assistant_model_no_space">Not enough free storage to switch models. Nothing was changed.</string>
-    <string name="assistant_model_busy_hint">Cancel the running download to change the model.</string>
     <string name="home_ringer_vibrate">Vibrate mode</string>
     <string name="home_ringer_silent">Silent mode</string>
     <string name="assistant_ready">Verified and ready</string>

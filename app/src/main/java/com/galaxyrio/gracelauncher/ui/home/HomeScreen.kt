@@ -266,7 +266,7 @@ fun HomeScreen(
             Spacer(Modifier.height(2.dp))
         }
         items(favorites, key = LauncherApp::key, contentType = { if (it.folderId == null) "app" else "folder" }) { app ->
-            val focusRequester = focusRequesters.getOrPut(app.key) { FocusRequester() }
+            val focusRequester = remember(app.key) { focusRequesters.getOrPut(app.key) { FocusRequester() } }
             val rowModifier = Modifier.focusRequester(focusRequester).onFocusChanged {
                 if (it.isFocused && navigationEnabled) selectedAppKey = app.key
             }
