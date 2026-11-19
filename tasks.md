@@ -1,5 +1,12 @@
 # Tasks
 
+## Current 2026-11-19 Signed release follow-up 2 — 1.2.11/19, source f65643b; NOT installed
+
+- Built with JDK 21 from **`f65643b8c0f423396f94b94fdfb3cd267510daa1`**; `app/` matched that commit without uncommitted changes. `:app:assembleRelease` (R8) PASS. No source/ProGuard/version changes; no device/emulator commands or push.
+- APK: **`app/build/reports/model-matrix/release-1.2.11-f65643b/GraceLauncher-1.2.11-signed.apk`**, **59,606,045 B**, SHA-256 **`939d5c563d5bc4515903ca26489202453bb03af2f256a556c77188785c877d86`**. Supersedes the earlier `e80e9ef` artifact **`458eb851…`** at the **same 1.2.11 / versionCode 19**.
+- Reused alias `grace-launcher`, certificate SHA-256 **`7c928de3824f4c6d91056d5e5615c5cb5414fece82643c0930c0ca600f583a0b`**. Signature verification PASS (v3 at the app's minimum SDK; v2 + v3 with `--min-sdk-version 24`), `zipalign -c -P 16 -v 4` PASS, badging confirms `com.galaxyrio.gracelauncher` 1.2.11/19 and no debuggable flag. DEX confirms LiteRT JNI callback classes/`onMessage`, `MobileActionTools`, `WebSearchTools.search_web`, `WikipediaTools.query_wikipedia` / `read_wikipedia_sections` and `WikipediaQueryTools.query_wikipedia` retained.
+- Evidence beside APK: `verify.txt`, `verify-v2-v3.txt`, `zipalign.txt`, `badging.txt`, `dex-keep.txt`, `sha256.txt`. **NOT installed on any device.** Signed-release runtime assistant/Web/Wikipedia/Health smoke remains pending (user). No new JVM/lint/device runs; prior results below are unchanged. P16 ZIP alignment is not native ELF 16KB verification.
+
 ## Current 2026-11-19 Four-model UI/device matrix — 5590 only; 3 models PASS, Qwen2.5 FAILING
 
 - Follow-up 1: Qwen2.5 remains selectable; its English picker note now says “Small, multilingual · experimental, may misstate facts”. Confirmed switches close the engine, then sweep other model files and stale top-level CPU/GPU engine-cache files under the existing IO/mutation lock. The full target `<enum>-<filename>_` prefix is retained; directories/unrelated files are excluded; cache deletion is best-effort. No emulator cache-policy/prompt/catalog changes. `ModelMatrixTest` now checks the cache invariant after each switch.
