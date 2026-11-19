@@ -347,7 +347,7 @@ class AssistantController(private val context: Context, private val scope: Corou
     private suspend fun inferSavedText(system: String, history: List<ChatTurn>, content: String): String = withEngine(selected) {
         val current = engine!!.createConversation(ConversationConfig(
             tools = emptyList(), automaticToolCalling = false,
-            systemInstruction = Contents.of(listOf(Content.Text(system))),
+            systemInstruction = Contents.of(listOf(Content.Text(modelSavedInstructions(selected, system)))),
             initialMessages = historyMessages(history), maxOutputToken = CHAT_OUTPUT_TOKENS, extraContext = selected.extraContext,
             samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 0),
         ))
@@ -401,7 +401,7 @@ class AssistantController(private val context: Context, private val scope: Corou
             val reply = if (inferStep != null) inferStep(transcript, next, allowSearch) else withEngine(selected) {
                 val current = engine!!.createConversation(ConversationConfig(
                     tools = if (!allowSearch) emptyList() else if (wiki) listOf(tool(WikipediaSearch.tools(firstLookup = step == 0))) else listOf(tool(WebSearchTools())), automaticToolCalling = false,
-                    systemInstruction = Contents.of(listOf(Content.Text(webInstructions +
+                    systemInstruction = Contents.of(listOf(Content.Text(modelRetrievalInstructions(selected, webInstructions, source, step == 0) +
                         if (!allowSearch) if (wiki) "\nNo more retrievals. Use only this turn's evidence; if insufficient, say so or ask for clarification. Never use offline knowledge." else "\nNo more searches are available. Answer now. If search failed, use only offline knowledge and explicitly state that it was not verified." else ""))),
                     initialMessages = transcript, maxOutputToken = CHAT_OUTPUT_TOKENS, extraContext = selected.extraContext,
                     samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 0),
