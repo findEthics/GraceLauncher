@@ -223,7 +223,7 @@ class AssistantUiTest {
         compose.setContent { MaterialTheme { AssistantSettings() } }
         compose.onNodeWithText(compose.activity.getString(R.string.magic_help)).assertDoesNotExist()
         compose.onNodeWithTag("assistant_model_Gemma4").assertExists()
-        compose.onNodeWithTag("assistant_model_FunctionGemma").assertDoesNotExist()
+        compose.onNodeWithTag("assistant_model_NoSuchModel").assertDoesNotExist()
         compose.onNodeWithTag("assistant_token").assertDoesNotExist()
         compose.onNodeWithTag("assistant_speech_status").assertDoesNotExist()
         compose.onNodeWithTag("assistant_speech_settings").assertDoesNotExist()

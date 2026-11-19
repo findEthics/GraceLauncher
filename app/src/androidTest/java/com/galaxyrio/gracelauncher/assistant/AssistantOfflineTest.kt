@@ -146,16 +146,16 @@ class AssistantOfflineTest {
             val request = "Remember the code word ORCHID. Reply only OK."
             var response = ""
             var chunks = 0
-            controller.inferChat(request) { response = it; if (it.isNotBlank()) chunks++ }
+            controller.inferChat(request, onResponse = { response = it; if (it.isNotBlank()) chunks++ })
             assertTrue("Chat must produce text", response.isNotBlank())
             assertTrue(chunks > 0)
             val history = listOf(ChatTurn(1, request, false, response, complete = true, inContext = true))
             response = ""
-            controller.inferChat("What code word did I give you? Reply with the word only.", history) { response = it }
+            controller.inferChat("What code word did I give you? Reply with the word only.", history, onResponse = { response = it })
             assertTrue("Current-session context must be available", response.contains("ORCHID", ignoreCase = true))
             assertTrue(controller.lastTokenCount in 1 until AssistantController.CONTEXT_TOKENS)
             response = ""
-            controller.inferChat("How do timers work? Answer in one short sentence.") { response = it }
+            controller.inferChat("How do timers work? Answer in one short sentence.", onResponse = { response = it })
             assertTrue("Discussing actions must remain ordinary chat", response.isNotBlank())
         } finally { controller.close() }
     }

@@ -382,7 +382,8 @@ internal fun HomeClockHeader(
         shadow = appearance.textShadow,
     )
     val hasAgenda = showCalendar && events.isNotEmpty()
-    val hasStatus = battery != null || weather?.temperature != null
+    val ringer = ringerIcon(rememberRingerMode())
+    val hasStatus = battery != null || weather?.temperature != null || ringer != null
     val calendarModifier = Modifier
         .semantics { contentDescription = dateDescription }
         .clip(LauncherLayout.RowShape)
@@ -451,6 +452,10 @@ internal fun HomeClockHeader(
             if (weather?.temperature != null) {
                 if (battery != null) Spacer(Modifier.width(10.dp))
                 HomeWeather(weather, appearance.text, dateStyle, Modifier.alignByBaseline())
+            }
+            if (ringer != null) {
+                if (battery != null || weather?.temperature != null) Spacer(Modifier.width(10.dp))
+                HomeRinger(ringer, appearance.text, dateStyle, Modifier.alignByBaseline())
             }
         }
     }

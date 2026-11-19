@@ -24,7 +24,7 @@ class AssistantController(private val context: Context, private val scope: Corou
     private val prefs = context.getSharedPreferences("offline_assistant", Context.MODE_PRIVATE)
     var enabled by mutableStateOf(prefs.getBoolean("enabled", false)); private set
     var homeButtonVisible by mutableStateOf(prefs.getBoolean("show_home_button", true)); private set
-    val selected = AssistantModel.Gemma4
+    var selected by mutableStateOf(parseSelectedModel(prefs.getString("model", null))); private set
     var status by mutableStateOf(""); private set
     var busy by mutableStateOf(false); private set
     private var job: Job? = null
@@ -51,11 +51,14 @@ class AssistantController(private val context: Context, private val scope: Corou
     }
     private val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         enabled = prefs.getBoolean("enabled", false)
+        val model = parseSelectedModel(prefs.getString("model", null))
+        val switched = model != selected
+        selected = model
         homeButtonVisible = prefs.getBoolean("show_home_button", true)
-        if (!enabled) { cancel(); chat.clear(); unload() }
+        // A model switch made in Advanced (another controller) must not mix templates/context in Home chat.
+        if (!enabled || switched) { cancel(); chat.clear(); unload() }
     }
     init {
-        prefs.edit().putString("model", selected.name).apply()
         prefs.registerOnSharedPreferenceChangeListener(listener)
     }
     fun enable(value: Boolean) { prefs.edit().putBoolean("enabled", value).apply() }
@@ -75,6 +78,25 @@ class AssistantController(private val context: Context, private val scope: Corou
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { status = e.message?.takeIf { !it.contains("http") && !it.contains(token.takeIf { t -> t.isNotBlank() } ?: "\u0000") } ?: "Download failed; check access and storage" }
             finally { downloading = false; if (id == generation) busy = false }
+        }
+    }
+    /** Delete-then-download: peak disk is one model. Caller confirms first; no-op while busy or for the current model. */
+    fun switchModel(target: AssistantModel) {
+        if (target == selected || busy || downloading) return
+        if (!hasSpaceForSwitch(files.usableSpace(), files.deletableBytes(target), target.bytes)) {
+            status = context.getString(R.string.assistant_model_no_space); return
+        }
+        cancel(); chat.clear()
+        selected = target
+        prefs.edit().putString("model", target.name).apply()
+        busy = true
+        job = scope.launch {
+            try {
+                engineLock.withLock { engine?.close(); engine = null; loaded = null; files.sweepExcept(target) }
+            } catch (e: CancellationException) { busy = false; throw e }
+            catch (_: Exception) { status = "Could not remove old model files"; busy = false; return@launch }
+            busy = false
+            download(target, "")
         }
     }
     fun delete(model: AssistantModel) {
@@ -134,7 +156,7 @@ class AssistantController(private val context: Context, private val scope: Corou
     /** The same entry point handles IME and hardware Enter; a busy send is never queued. */
     fun submit() {
         if (!enabled || busy || chat.draft.isBlank()) return
-        if (!ready()) { status = "Download Gemma 4 in Advanced settings"; return }
+        if (!ready()) { status = "Download an assistant model in Advanced settings"; return }
         val input = chat.draft
         val source = chat.source
         // "source N" is resolved here from RAM, never by Gemma: no search, no network, whatever the chip says.
@@ -222,7 +244,7 @@ class AssistantController(private val context: Context, private val scope: Corou
 
     @OptIn(ExperimentalApi::class)
     private suspend fun <T> withEngine(model: AssistantModel, block: suspend () -> T): T = engineLock.withLock {
-        require(model == AssistantModel.Gemma4) { "Gemma 4 is required" }
+        require(model == selected) { "Model is not selected" }
         require(files.ready(model)) { "Verified model is missing" }
         withContext(Dispatchers.IO) {
             try {
@@ -284,7 +306,7 @@ class AssistantController(private val context: Context, private val scope: Corou
             tools = emptyList(), automaticToolCalling = false,
             systemInstruction = Contents.of(listOf(Content.Text(system))),
             initialMessages = historyMessages(history),
-            maxOutputToken = CHAT_OUTPUT_TOKENS,
+            maxOutputToken = CHAT_OUTPUT_TOKENS, extraContext = selected.extraContext,
             samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 0),
         ))
         conversation = current
@@ -295,9 +317,11 @@ class AssistantController(private val context: Context, private val scope: Corou
             current.sendMessageAsync(text).collect { message ->
                 require(message.toolCalls.isEmpty()) { "Chat cannot call tools" }
                 response += message.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
-                onResponse(response)
+                onResponse(stripThinking(response))
             }
             currentCoroutineContext().ensureActive()
+            // Leaked tool-call markup in a tool-free reply fails closed (generic failure, never shown).
+            onResponse(requireNotNull(cleanModelText(response)) { "Chat produced tool-call text" })
             lastTokenCount = current.getTokenCount()
         } finally { conversation = null; current.close() }
     }
@@ -324,7 +348,7 @@ class AssistantController(private val context: Context, private val scope: Corou
         val current = engine!!.createConversation(ConversationConfig(
             tools = emptyList(), automaticToolCalling = false,
             systemInstruction = Contents.of(listOf(Content.Text(system))),
-            initialMessages = historyMessages(history), maxOutputToken = CHAT_OUTPUT_TOKENS,
+            initialMessages = historyMessages(history), maxOutputToken = CHAT_OUTPUT_TOKENS, extraContext = selected.extraContext,
             samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 0),
         ))
         conversation = current
@@ -337,7 +361,7 @@ class AssistantController(private val context: Context, private val scope: Corou
             }
             currentCoroutineContext().ensureActive()
             lastTokenCount = current.getTokenCount()
-            reply.result()
+            requireNotNull(cleanModelText(reply.result())) { "Chat produced tool-call text" }
         } finally { conversation = null; current.close() }
     }
 
@@ -379,7 +403,7 @@ class AssistantController(private val context: Context, private val scope: Corou
                     tools = if (!allowSearch) emptyList() else if (wiki) listOf(tool(WikipediaSearch.tools(firstLookup = step == 0))) else listOf(tool(WebSearchTools())), automaticToolCalling = false,
                     systemInstruction = Contents.of(listOf(Content.Text(webInstructions +
                         if (!allowSearch) if (wiki) "\nNo more retrievals. Use only this turn's evidence; if insufficient, say so or ask for clarification. Never use offline knowledge." else "\nNo more searches are available. Answer now. If search failed, use only offline knowledge and explicitly state that it was not verified." else ""))),
-                    initialMessages = transcript, maxOutputToken = CHAT_OUTPUT_TOKENS,
+                    initialMessages = transcript, maxOutputToken = CHAT_OUTPUT_TOKENS, extraContext = selected.extraContext,
                     samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 0),
                 ))
                 conversation = current
@@ -397,11 +421,11 @@ class AssistantController(private val context: Context, private val scope: Corou
                     }
                     currentCoroutineContext().ensureActive()
                     lastTokenCount = current.getTokenCount()
-                    Message.model(Contents.of(listOf(Content.Text(response.result()))), calls)
+                    Message.model(Contents.of(listOf(Content.Text(stripThinking(response.result())))), calls)
                 } finally { conversation = null; current.close() }
             }
             currentCoroutineContext().ensureActive()
-            val replyText = reply.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
+            val replyText = stripThinking(reply.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text })
             val recoveredCall = if (allowSearch && reply.toolCalls.isEmpty()) {
                 if (wiki) WikipediaSearch.recoveredCall(replyText)
                 else WebToolText.query(replyText)?.let { ToolCall("search_web", mapOf("query" to it)) }

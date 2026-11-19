@@ -642,9 +642,9 @@ internal fun MagicAdvancedSettings() {
     val actions = remember(context) { MagicActions(context) }
     DisposableEffect(prefs) { onDispose { prefs.close() } }
     var settings by remember { mutableStateOf(false) }
+    TextButton(onClick = { settings = true }) { Text(stringResource(R.string.magic_settings)) }
     Text(stringResource(R.string.magic_title), style = MaterialTheme.typography.titleLarge)
     Text(stringResource(R.string.magic_help), style = MaterialTheme.typography.bodyMedium)
-    TextButton(onClick = { settings = true }) { Text(stringResource(R.string.magic_settings)) }
     if (settings) MagicSettingsDialog(prefs, actions) { settings = false }
 }
 

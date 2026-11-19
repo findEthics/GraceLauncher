@@ -63,6 +63,13 @@ uses `MaterialTheme.colorScheme.onSurface`. No icons are downloaded at runtime.
 Day/night is independent of the UI theme. Unknown forecasts retain a neutral
 em dash with the supplied accessible description.
 
+### Sound-mode icons added 2026-11-19
+
+Official Android vectors at revision `bd8cb85bd4bad964fe6918f79665bb40c3a8efef` (same conversion as weather icons; tint supplied by Compose):
+
+- `ms_vibration.xml`: https://raw.githubusercontent.com/google/material-design-icons/bd8cb85bd4bad964fe6918f79665bb40c3a8efef/symbols/android/vibration/materialsymbolsoutlined/vibration_24px.xml
+- `ms_notifications_off.xml`: https://raw.githubusercontent.com/google/material-design-icons/bd8cb85bd4bad964fe6918f79665bb40c3a8efef/symbols/android/notifications_off/materialsymbolsoutlined/notifications_off_24px.xml
+
 ### Other icons
 
 App package row icon added 2026-10-06 (official Android vector retained, tint supplied by Compose):

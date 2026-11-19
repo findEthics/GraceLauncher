@@ -1,6 +1,8 @@
 package com.galaxyrio.gracelauncher.assistant
 
 import android.content.Context
+import androidx.annotation.StringRes
+import com.galaxyrio.gracelauncher.R
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -27,18 +29,54 @@ enum class AssistantModel(
     val bytes: Long,
     val sha256: String,
     val tokenRequired: Boolean,
+    @StringRes val note: Int,
+    val extraContext: Map<String, Any> = emptyMap(),
 ) {
-    FunctionGemma(
-        "FunctionGemma 270M", "litert-community/functiongemma-270m-ft-mobile-actions",
-        "f752a74080682b379823794defdbbdf8c2663609", "mobile_actions_q8_ekv1024.litertlm",
-        288964608L, "33e295cbd996b419bb1de8f3f85c5b6b01ee058a2c89bdb2173cf3e6ff4ce9d0", true,
-    ),
     Gemma4(
         "Gemma 4 E2B", "litert-community/gemma-4-E2B-it-litert-lm",
         "b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1", "gemma-4-E2B-it.litertlm",
         2588147712L, "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c", false,
+        R.string.assistant_model_note_gemma4,
+    ),
+    Gemma4E4B(
+        "Gemma 4 E4B", "litert-community/gemma-4-E4B-it-litert-lm",
+        "f254b5ba6e36f7d89cc7892e268e9877bc20f0a0", "gemma-4-E4B-it.litertlm",
+        3659530240L, "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0", false,
+        R.string.assistant_model_note_gemma4_e4b,
+    ),
+    // The wi4b32 bundle is the one verified on LiteRT-LM 0.18 GPU; the plain Qwen3_1.7B bundle needs 0.19.
+    Qwen3_1_7B(
+        "Qwen3 1.7B", "litert-community/Qwen3-1.7B",
+        "c421cc3775575372ac2ca4aa1bebc97300ae36b6", "Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm",
+        977184032L, "2a72330b504a6596d53a2c00923c57173b10f1b83e6a541213ffec08d1fc5de8", false,
+        R.string.assistant_model_note_qwen3, mapOf("enable_thinking" to false),
+    ),
+    Qwen2_5_1_5B(
+        "Qwen2.5 1.5B", "litert-community/Qwen2.5-1.5B-Instruct",
+        "60257f9f1d00ca1f24cc5ce3b829b4139be1ca2b", "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm",
+        1597922856L, "c4a9b7289365ab80fe599b844b77ad253eb3c53fb0e5d963d699146a6f01255e", false,
+        R.string.assistant_model_note_qwen25,
     ),
 }
+
+/** Unknown or legacy stored values (for example the removed FunctionGemma) fall back to the default. */
+fun parseSelectedModel(stored: String?): AssistantModel =
+    AssistantModel.entries.firstOrNull { it.name == stored } ?: AssistantModel.Gemma4
+
+internal fun modelUrl(model: AssistantModel) =
+    "https://huggingface.co/${model.repository}/resolve/${model.revision}/${model.filename}"
+
+/** Every file in the models dir except the target's model, `.sha256`, `.part` and `.sha256.part`. */
+internal fun sweepTargets(dir: File, target: AssistantModel): List<File> {
+    val keep = "${target.name}-${target.filename}"
+    return dir.listFiles()?.filter { it.name != keep && !it.name.startsWith("$keep.") }.orEmpty()
+}
+
+internal const val SWITCH_MARGIN_BYTES = 200L * 1_000_000
+
+/** Free space plus the bytes about to be deleted must cover the new model and a margin. */
+internal fun hasSpaceForSwitch(usableSpace: Long, deletableBytes: Long, newModelBytes: Long): Boolean =
+    usableSpace + deletableBytes >= newModelBytes + SWITCH_MARGIN_BYTES
 
 class ModelFiles(context: Context) {
     private val storage = File(context.noBackupFilesDir, "assistant-models")
@@ -73,7 +111,7 @@ class ModelFiles(context: Context) {
                 }
                 var published = false
                 try {
-                    var url = URL("https://huggingface.co/${model.repository}/resolve/${model.revision}/${model.filename}")
+                    var url = URL(modelUrl(model))
                     var sendBearer = bearer != null
                     var redirects = 0
                     var lastProgress = 0L
@@ -155,7 +193,7 @@ class ModelFiles(context: Context) {
                             // Transient network drop: resume from the partial file (max 5 retries).
                             if (e is SafeDownloadException || e is ModelAccessException || ++attempts > 5) throw e
                             android.util.Log.w("ModelDl", e.javaClass.name + " retry " + attempts)
-                            url = URL("https://huggingface.co/${model.repository}/resolve/${model.revision}/${model.filename}")
+                            url = URL(modelUrl(model))
                             sendBearer = bearer != null; redirects = 0
                             delay(1_000L * attempts)
                         } finally {
@@ -190,6 +228,15 @@ class ModelFiles(context: Context) {
             remove(File(storage, "${file(model).name}.part"))
             remove(File(storage, "${file(model).name}.sha256.part"))
         }
+    }
+
+    /** Bytes the switch to [target] would free. */
+    fun deletableBytes(target: AssistantModel): Long = sweepTargets(storage, target).sumOf { it.length() }
+    fun hasAnyModel(): Boolean = storage.listFiles()?.any { it.isFile && !it.name.endsWith(".part") } == true
+    fun usableSpace(): Long = (if (storage.isDirectory) storage else storage.parentFile ?: storage).usableSpace
+
+    suspend fun sweepExcept(target: AssistantModel) = withContext(Dispatchers.IO) {
+        mutation.withLock { sweepTargets(storage, target).forEach { remove(it) } }
     }
 
     private fun remove(file: File) {

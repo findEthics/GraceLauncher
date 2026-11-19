@@ -7,6 +7,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -344,25 +346,28 @@ fun AssistantSettings(modifier: Modifier = Modifier) {
     val assistant = remember(context) { AssistantController(context, scope) }
     DisposableEffect(assistant) { onDispose { assistant.close() } }
     val homeButtonDescription = stringResource(R.string.assistant_show_home_button)
+    var picking by remember { mutableStateOf(false) }
+    var pending by remember { mutableStateOf<AssistantModel?>(null) }
+    fun gb(model: AssistantModel) = String.format(java.util.Locale.getDefault(), "%.1f", model.bytes / 1e9)
     Column(modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(stringResource(R.string.assistant_title), style = MaterialTheme.typography.titleLarge)
-        Text(stringResource(R.string.assistant_privacy), style = MaterialTheme.typography.bodyMedium)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.assistant_enable), Modifier.weight(1f))
             Switch(checked = assistant.enabled, onCheckedChange = assistant::enable, modifier = Modifier.testTag("assistant_enable"))
         }
-        Text(assistant.status, Modifier.testTag("assistant_download_status"))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(homeButtonDescription, Modifier.weight(1f))
             Switch(checked = assistant.homeButtonVisible, onCheckedChange = assistant::showHomeButton,
                 modifier = Modifier.testTag("assistant_show_home_button").semantics { contentDescription = homeButtonDescription })
         }
-        Text(stringResource(R.string.assistant_show_home_button_hint), style = MaterialTheme.typography.bodySmall)
-        HorizontalDivider()
-        HealthSettings()
-        HorizontalDivider()
-        Text(assistant.selected.label, Modifier.testTag("assistant_model_Gemma4"), style = MaterialTheme.typography.titleMedium)
-        Text(if (assistant.ready()) stringResource(R.string.assistant_ready) else "${assistant.selected.bytes / 1_000_000} MB")
+        TextButton(enabled = !assistant.busy, onClick = { picking = true },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("assistant_model_picker")) {
+            Column(Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.assistant_model_title), style = MaterialTheme.typography.bodySmall)
+                Text(assistant.selected.label, Modifier.testTag("assistant_model_${assistant.selected.name}"), style = MaterialTheme.typography.titleMedium)
+            }
+        }
+        Text(if (assistant.ready()) stringResource(R.string.assistant_ready) else "${gb(assistant.selected)} GB")
         if (!assistant.ready()) Button(enabled = !assistant.busy, onClick = { assistant.download(assistant.selected, "") }) {
             Text(stringResource(R.string.assistant_download))
         } else TextButton(enabled = !assistant.busy, onClick = { assistant.delete(assistant.selected) }) {
@@ -372,7 +377,50 @@ fun AssistantSettings(modifier: Modifier = Modifier) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
             if (assistant.canCancel) TextButton(onClick = assistant::cancel) { Text(stringResource(R.string.assistant_cancel)) }
         }
+        Text(assistant.status, Modifier.testTag("assistant_download_status"))
+        HorizontalDivider()
+        HealthSettings()
+        HorizontalDivider()
+        Text(stringResource(R.string.assistant_privacy), style = MaterialTheme.typography.bodyMedium)
+        Text(stringResource(R.string.assistant_show_home_button_hint), style = MaterialTheme.typography.bodySmall)
         Text(stringResource(R.string.assistant_chat_hint), style = MaterialTheme.typography.bodySmall)
         Text(stringResource(R.string.assistant_direct_actions), style = MaterialTheme.typography.bodySmall)
+    }
+    if (picking) AlertDialog(
+        onDismissRequest = { picking = false },
+        title = { Text(stringResource(R.string.assistant_model_picker_title)) },
+        text = {
+            Column(Modifier.selectableGroup()) {
+                AssistantModel.entries.forEach { model ->
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("assistant_model_option_${model.name}")
+                        .selectable(selected = model == assistant.selected, role = Role.RadioButton, onClick = {
+                            picking = false
+                            if (model != assistant.selected) pending = model
+                        }), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = model == assistant.selected, onClick = null)
+                        Text(stringResource(R.string.assistant_model_option, model.label, gb(model), stringResource(model.note)),
+                            Modifier.padding(start = 12.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { picking = false }) { Text(stringResource(R.string.assistant_cancel)) } },
+    )
+    pending?.let { target ->
+        val installed = assistant.files.hasAnyModel()
+        AlertDialog(
+            onDismissRequest = { pending = null },
+            title = { Text(stringResource(R.string.assistant_model_switch_title)) },
+            text = {
+                Text(if (installed) stringResource(R.string.assistant_model_switch_confirm, assistant.selected.label, target.label, gb(target))
+                else stringResource(R.string.assistant_model_download_confirm, target.label, gb(target)))
+            },
+            confirmButton = {
+                TextButton(modifier = Modifier.testTag("assistant_model_confirm"), onClick = { pending = null; assistant.switchModel(target) }) {
+                    Text(stringResource(if (installed) R.string.assistant_model_switch_action else R.string.assistant_model_download_action))
+                }
+            },
+            dismissButton = { TextButton(onClick = { pending = null }) { Text(stringResource(R.string.assistant_cancel)) } },
+        )
     }
 }
