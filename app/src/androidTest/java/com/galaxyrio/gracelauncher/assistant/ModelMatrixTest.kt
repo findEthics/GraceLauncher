@@ -214,6 +214,11 @@ class ModelMatrixTest {
         val file = ModelFiles(context).file(model)
         assertEquals(setOf(file.name, "${file.name}.sha256"), file.parentFile!!.listFiles()!!.map { it.name }.toSet())
         assertTrue(ModelFiles(context).ready(model))
+        stage = "Verify only selected model engine caches remain"
+        val caches = context.noBackupFilesDir.listFiles()!!.filter {
+            it.isFile && (it.name.endsWith(".xnnpack_cache") || it.name.endsWith("_mldrift_weight_cache.bin"))
+        }
+        assertTrue(caches.all { it.name.startsWith("${model.name}-${model.filename}_") })
     }
 
     private fun launchHome() { launch<MainActivity>() }

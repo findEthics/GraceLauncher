@@ -582,7 +582,7 @@
     <string name="assistant_model_note_gemma4">Default · balanced</string>
     <string name="assistant_model_note_gemma4_e4b">Smarter, slower</string>
     <string name="assistant_model_note_qwen3">Small and fast</string>
-    <string name="assistant_model_note_qwen25">Small, multilingual</string>
+    <string name="assistant_model_note_qwen25">Small, multilingual · experimental, may misstate facts</string>
     <string name="assistant_model_switch_title">Switch model?</string>
     <string name="assistant_model_switch_confirm">Delete %1$s and download %2$s (%3$s GB)? Chat will be cleared.</string>
     <string name="assistant_model_download_confirm">Download %1$s (%2$s GB)?</string>

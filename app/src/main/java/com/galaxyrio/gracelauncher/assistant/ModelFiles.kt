@@ -72,6 +72,14 @@ internal fun sweepTargets(dir: File, target: AssistantModel): List<File> {
     return dir.listFiles()?.filter { it.name != keep && !it.name.startsWith("$keep.") }.orEmpty()
 }
 
+internal fun staleEngineCaches(dir: File, target: AssistantModel): List<File> {
+    val keep = "${target.name}-${target.filename}_"
+    return dir.listFiles()?.filter {
+        it.isFile && (it.name.endsWith(".xnnpack_cache") || it.name.endsWith("_mldrift_weight_cache.bin")) &&
+            !it.name.startsWith(keep)
+    }.orEmpty()
+}
+
 internal const val SWITCH_MARGIN_BYTES = 200L * 1_000_000
 
 /** Free space plus the bytes about to be deleted must cover the new model and a margin. */
@@ -79,7 +87,8 @@ internal fun hasSpaceForSwitch(usableSpace: Long, deletableBytes: Long, newModel
     usableSpace + deletableBytes >= newModelBytes + SWITCH_MARGIN_BYTES
 
 class ModelFiles(context: Context) {
-    private val storage = File(context.noBackupFilesDir, "assistant-models")
+    private val cacheDir = context.noBackupFilesDir
+    private val storage = File(cacheDir, "assistant-models")
 
     fun file(model: AssistantModel) = File(storage, "${model.name}-${model.filename}")
     private fun sidecar(model: AssistantModel) = File(storage, "${file(model).name}.sha256")
@@ -236,7 +245,11 @@ class ModelFiles(context: Context) {
     fun usableSpace(): Long = (if (storage.isDirectory) storage else storage.parentFile ?: storage).usableSpace
 
     suspend fun sweepExcept(target: AssistantModel) = withContext(Dispatchers.IO) {
-        mutation.withLock { sweepTargets(storage, target).forEach { remove(it) } }
+        mutation.withLock {
+            sweepTargets(storage, target).forEach { remove(it) }
+            // Disposable native caches must not prevent switching if a delete fails.
+            staleEngineCaches(cacheDir, target).forEach { runCatching { it.delete() } }
+        }
     }
 
     private fun remove(file: File) {
