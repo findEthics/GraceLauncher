@@ -1,13 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
+   Backup rules (API < 31). The memory mirror (notes in plain text for FTS) never leaves the device:
+   it is rebuildable from the server and must not reach cloud backup.
    See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="database" path="memory_mirror.db" />
+    <exclude domain="database" path="memory_mirror.db-wal" />
+    <exclude domain="database" path="memory_mirror.db-shm" />
+    <exclude domain="database" path="memory_mirror.db-journal" />
 </full-backup-content>

@@ -176,6 +176,8 @@ class LauncherSettingsIntegrationTest {
                 compose.onNodeWithTag("settings_advanced").assertIsDisplayed()
                 clickSetting("settings_advanced", "settings_keyboard_shortcuts")
                 compose.onNodeWithTag("settings_keyboard_shortcuts_page").assertIsDisplayed()
+                compose.onNodeWithText(InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.magic_help)).assertDoesNotExist()
+                compose.onNodeWithTag("magic_help_toggle").performClick()
                 compose.onNodeWithText(InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.magic_help)).assertExists()
                 compose.onNodeWithTag("assistant_model_Gemma4").assertDoesNotExist()
                 settingsBack()

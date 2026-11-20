@@ -520,12 +520,12 @@
     </plurals>
     <!-- Offline assistant -->
     <string name="assistant_title">Offline assistant</string>
-    <string name="assistant_privacy">• Inference stays on this device; no cloud inference fallback.\n• Chat stays in memory; closing chat clears it.\n• Optional Web search sends generated queries to Tavily. Wikipedia sends a generated topic to the selected Wikipedia language edition. Either may include chat details; no full transcript upload.\n• Downloads need internet. Your keyboard and external apps may also use internet.</string>
+    <string name="assistant_privacy">• Inference stays on this device; no cloud fallback.\n• Chat stays in memory; closing chat clears it.\n• Web search sends generated queries to Tavily; Wikipedia sends a generated topic to the selected language edition. Either may include chat details; the full transcript is never uploaded.\n• Downloads need internet. Your keyboard and external apps may also use internet.</string>
     <string name="assistant_enable">Enable chat assistant on Home</string>
     <string name="assistant_show_home_button">Show chat button on Home</string>
-    <string name="assistant_show_home_button_hint">When hidden, use Space on the Home keyboard to open chat. The assistant must remain enabled.</string>
+    <string name="assistant_show_home_button_hint">• Chat button hidden: press Space on idle Home to open chat.\n• The assistant must stay enabled.</string>
     <string name="assistant_open_chat">Open chat assistant</string>
-    <string name="assistant_chat_hint">• On idle Home: Space opens chat without adding text. Assistant must be enabled.\n• Enter or keyboard Send submits; Shift+Enter adds a line. Back closes and clears chat; Home minimizes and retains it in memory.\n• Chat cannot operate the phone. Punctuation, including !, is ordinary chat text.\n• Tap + for either Web search or Wikipedia; tap × for neither. Selection persists through submits and Home; clearing chat restores Web search.\n• The model chooses a query or primary topic and language, up to twice per reply. Queries may contain chat details.\n• Web failures warn that an offline answer is unverified. Wikipedia can discover an introduction and read up to two selected article sections within two retrieval calls. Excerpts may be partial; headings are navigation, not evidence. Answers use only text retrieved for that reply, with article, contributor and license links; missing evidence gives an inability-to-verify message, never an offline answer.</string>
+    <string name="assistant_chat_hint">• Open: on idle Home, Space opens chat without adding text (assistant must be enabled).\n• Keys: Enter or Send submits; Shift+Enter adds a line. Back closes and clears chat; Home minimizes and keeps it in memory.\n• Chat cannot operate the phone; punctuation, including !, is ordinary text.\n• Type / for commands (/web, /wikipedia, /health, memory). Tap + for Web search, Wikipedia or Health; tap × for neither. Selection persists through submits and Home; clearing chat restores Web search.\n• The model picks a query or primary topic and language, up to twice per reply; queries may contain chat details.\n• Web failures warn that an offline answer is unverified.\n• Wikipedia: finds an introduction and reads up to two selected sections within two retrieval calls. Excerpts may be partial; headings are navigation, not evidence.\n• Answers use only text retrieved for that reply, with article, contributor and license links. Missing evidence gives an inability-to-verify message, never an offline answer.</string>
     <string name="assistant_tools">Chat tools</string>
     <string name="assistant_web_search">Web search</string>
     <string name="assistant_wikipedia">Wikipedia</string>
@@ -594,7 +594,7 @@
     <string name="assistant_ready">Verified and ready</string>
     <string name="assistant_download">Download model</string>
     <string name="assistant_delete">Delete model</string>
-    <string name="assistant_direct_actions">• Assistant provides chat and optional Web search or Wikipedia only; it never executes phone actions.\n• Use keyboard commands from idle Home for messaging, calls, calendar drafts, notes, to-dos, alarms and timers.</string>
+    <string name="assistant_direct_actions">• Assistant: chat plus optional Web search or Wikipedia only; it never executes phone actions.\n• For messaging, calls, calendar drafts, notes, to-dos, alarms and timers, use keyboard commands from idle Home.</string>
     <!-- Local keyboard commands, separate from assistant chat. -->
     <string name="provider_whatsapp">WhatsApp</string>
     <string name="provider_whatsapp_business">WhatsApp Business</string>
@@ -629,7 +629,7 @@
     <string name="magic_note_added">📝 Note added</string>
     <string name="magic_note_updated">📝 Note updated</string>
     <string name="magic_capture_failed">Could not save. Check Notes and try again.</string>
-    <string name="magic_help">• On idle Home: @ message, # call, + calendar draft, ! alarm/timer, ? app search (if enabled). No assistant or model needed. In editors, these characters are ordinary text.\n• - or Alt+T: floating to-do. Titan 2 Elite types - with Alt+I. , or Alt+N/Alt+A: floating note. Requires the Notes app; Grace stays on Home. Enter saves nonblank text.\n• Notes: type a new note and Enter to save, or tap an existing title (arrows then Enter also select). Selection clears the input; type the text to append and Enter to save. No existing note is selected by default.\n• Message/call: type a contact or address. For calls, Enter or a tap calls immediately after any required phone permission; if unavailable or denied, the dialer opens instead. For messages, Enter selects; type the body and Enter to continue. Grant contact permission for lookup.\n• WhatsApp/Business selections stay separate: synced phone contacts first, recent conversations only when sync data is unavailable. Lists may be empty or incomplete; membership is not checked live.\n• Event examples from Home: +meeting 30 nov at 9am or +meeting nov 30 at 9am. The opening + opens the panel; type the rest inside.\n• English accepts day + named month or named month + day, abbreviated or full, optional ordinal and four-digit year. Without a year, use the next occurrence; date only means all-day. Timed events default to one hour in the local time zone.\n• Calendar opens a draft for review and saving. Invalid dates need review; nothing is saved automatically.\n• After opening !, type an English command: alarm 7:30am, wake me at 7, or timer 10m, then Enter. Timers accept 1 second to 24 hours (30s, 5min, 2h, 1h 30m). Unqualified alarm hours 1–12 choose the nearest upcoming AM/PM time; use am/pm or a leading-zero hour (07:00) for a literal time. Check today/tomorrow in the preview. A named day must match Clock’s next occurrence; later dates are refused.\n• Arrows select results; Tab/Shift+Tab move focus; Enter continues; Shift+Enter adds a line.\n• Escape, Back, or Home clears the command. Returning from another app retains an unfinished draft in memory only.\n• Messaging normally opens a provider draft. Automatic direct SMS is off by default and needs the assistant role and SMS permission; confirm the exact number for inferred recipients. SMS is queued, not confirmed delivered; uncertain sends are not retried. Premium short codes may cost extra.\n• Space opens assistant chat when enabled.</string>
+    <string name="magic_help">• Home keys: on idle Home, @ message, # call, + calendar draft, ! alarm/timer, ? app search (if enabled). No assistant or model needed. In editors, these characters are ordinary text.\n• Floating to-do: - or Alt+T (Titan 2 Elite types - with Alt+I).\n• Floating note: , or Alt+N/Alt+A. Needs the Notes app; Grace stays on Home. Enter saves nonblank text.\n• Notes: type a new note and press Enter to save, or tap an existing title (arrows then Enter also select). Selecting clears the input; type the text to append and press Enter. No existing note is selected by default.\n• Message/call: type a contact or address; grant contact permission for lookup.\n• Call: Enter or a tap calls immediately after any required phone permission; if unavailable or denied, the dialer opens instead.\n• Message: Enter selects; type the body and press Enter to continue.\n• WhatsApp/Business: selections stay separate; synced phone contacts first, recent conversations only when sync data is unavailable. Lists may be empty or incomplete; membership is not checked live.\n• Calendar: +meeting 30 nov at 9am or +meeting nov 30 at 9am. The opening + opens the panel; type the rest inside.\n• Dates (English): day + named month or named month + day, abbreviated or full, optional ordinal and four-digit year. No year uses the next occurrence; date only means all-day; timed events default to one hour in the local time zone.\n• Calendar opens a draft for review and saving. Invalid dates need review; nothing is saved automatically.\n• Alarm/timer: after !, type an English command (alarm 7:30am, wake me at 7, timer 10m), then Enter.\n• Timers: 1 second to 24 hours (30s, 5min, 2h, 1h 30m).\n• Alarm hours: unqualified 1–12 chooses the nearest upcoming AM/PM time; use am/pm or a leading-zero hour (07:00) for a literal time. Check today/tomorrow in the preview. A named day must match Clock’s next occurrence; later dates are refused.\n• Navigation: arrows select results; Tab/Shift+Tab move focus; Enter continues; Shift+Enter adds a line.\n• Escape, Back, or Home clears the command. Returning from another app retains an unfinished draft in memory only.\n• SMS: messaging normally opens a provider draft. Automatic direct SMS is off by default and needs the assistant role and SMS permission; confirm the exact number for inferred recipients. SMS is queued, not confirmed delivered; uncertain sends are not retried. Premium short codes may cost extra.\n• Space opens assistant chat when enabled.</string>
     <string name="magic_message">Message</string>
     <string name="magic_event">Event</string>
     <string name="magic_event_input">Calendar event description</string>
@@ -674,4 +674,63 @@
     <string name="magic_automatic_hint">Off by default. When enabled with System messages selected, submitting a message can send carrier SMS directly after assistant-role selection and SMS permission. Carrier charges, including premium or short-code fees, may apply. Contacts inferred from conversations require confirmation of the name, number and message. Other providers open drafts for review.</string>
     <string name="magic_done">Done</string>
     <string name="system_messages">System messages</string>
+    <!-- Memory (assistant long-term notes) -->
+    <string name="memory_title">Memory</string>
+    <string name="memory_status_local_only">Memory: local only, not synced</string>
+    <string name="memory_status_synced">Memory: synced at %1$s</string>
+    <string name="memory_status_pending">Memory: %1$d pending</string>
+    <string name="memory_chip_save">Save to memory</string>
+    <string name="memory_chip_recall">Recall from memory</string>
+    <string name="memory_chip_delete">Forget from memory</string>
+    <string name="memory_chip_purge">Purge from memory</string>
+    <!-- Memory: Advanced instructions, manual sync, slash-command popup -->
+    <string name="memory_sync_now">Sync memory now</string>
+    <string name="memory_sync_running">Syncing…</string>
+    <string name="memory_sync_result_synced">Synced.</string>
+    <string name="memory_sync_result_failed">Sync failed (offline or server). Notes stay on this phone and will retry.</string>
+    <string name="memory_sync_result_local_only">Local only: save a Health token above to sync.</string>
+    <string name="memory_help_title">How to use memory</string>
+    <string name="assistant_help_title">How to use the assistant</string>
+    <string name="magic_help_title">How to use keyboard commands</string>
+    <string name="memory_help_collapse">Hide</string>
+    <string name="memory_help_body">• Save: /remember TEXT (chip Save to memory)\n• Recall: /recall TEXT, or just /recall for the newest 10 (chip Recall from memory)\n• Forget: /forget TEXT or number; soft delete, history kept (chip Forget from memory)\n• Purge: /purge TEXT or number; permanent, asks to confirm (chip Purge from memory)\n• History: /history N, N = note number from the list above\n• Type / in chat for the command list; /web, /wikipedia and /health pick a source.\n• Local only until a Health token is saved above; then notes sync, or tap Sync memory now.\n• Privacy: memory is never sent into Web or Wikipedia tool calls.</string>
+    <string name="memory_sql_title">Delete directly in Supabase</string>
+    <string name="memory_sql_warning">Sync the phone first so nothing is still queued: a queued save of the same note can recreate it. Run in the Supabase SQL editor, one query at a time. Replace &lt;NOTE-ID&gt; with an id from the list.</string>
+    <string name="memory_sql_list">1. List notes</string>
+    <string name="memory_sql_purge_one">2. Purge one note and its history</string>
+    <string name="memory_sql_purge_all">3. Purge all notes</string>
+    <string name="memory_sql_tombstones">4. List purged ids</string>
+    <string name="slash_popup">Commands</string>
+    <string name="slash_web">Search the web for this message</string>
+    <string name="slash_wikipedia">Search Wikipedia for this message</string>
+    <string name="slash_health">Answer from your Health dashboard</string>
+    <string name="slash_remember">Save a note to memory</string>
+    <string name="slash_recall">Show saved notes</string>
+    <string name="slash_forget">Forget a note (history kept)</string>
+    <string name="slash_purge">Permanently remove a note</string>
+    <string name="slash_history">Show a note\'s history</string>
+    <string name="memory_chip_remove">Remove %1$s</string>
+    <string name="memory_card_save">Review the note, then Save. Nothing is stored until you save.</string>
+    <string name="memory_card_pick">Pick a note:</string>
+    <string name="memory_card_confirm">Erase this note and its whole history permanently?</string>
+    <string name="memory_card_recall">Saved notes:</string>
+    <string name="memory_card_history">History of this note:</string>
+    <string name="memory_note_saved">Saved · will sync</string>
+    <string name="memory_note_cancelled">Cancelled. Nothing changed.</string>
+    <string name="memory_note_deleted">Deleted. The note is kept in history but no longer used.</string>
+    <string name="memory_note_erased">Erased permanently · will sync</string>
+    <string name="memory_note_no_match">No matching notes.</string>
+    <string name="memory_note_not_found">That note is not on screen. Run /recall first, then use its number.</string>
+    <string name="memory_note_usage_remember">Write what to remember, e.g. /remember my car is parked at level 3</string>
+    <string name="memory_note_usage_history">Use /history followed by a note number from the list above.</string>
+    <string name="memory_note_invalid">Could not complete the memory command. Nothing changed.</string>
+    <string name="memory_field_type">Type: %1$s</string>
+    <string name="memory_field_subject">Subject</string>
+    <string name="memory_field_text">Text</string>
+    <string name="memory_field_when">When: %1$s</string>
+    <string name="memory_replaces">Replaces:</string>
+    <string name="memory_invalid">Subject and text are required (subject up to 200 characters, text up to 8,000).</string>
+    <string name="memory_save">Save</string>
+    <string name="memory_erase_confirm">Erase permanently</string>
+    <string name="memory_conflict">conflict</string>
 </resources>

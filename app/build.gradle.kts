@@ -12,6 +12,15 @@ val tavilyKey = providers.fileContents(rootProject.layout.projectDirectory.file(
     ?.substringAfter('=')?.trim()?.removeSurrounding("\"")?.removeSurrounding("'").orEmpty()
 require(tavilyKey.all { it.isLetterOrDigit() || it == '-' || it == '_' }) { "Invalid Tavily key format" }
 
+// Memory sync config (public anon key; both optional). Empty → memory stays local-only; the build never fails on absence.
+fun dotenvValue(name: String) = providers.fileContents(rootProject.layout.projectDirectory.file(".env")).asText.orNull
+    ?.lineSequence()?.firstOrNull { it.trimStart().startsWith("$name=") }
+    ?.substringAfter('=')?.trim()?.removeSurrounding("\"")?.removeSurrounding("'").orEmpty()
+val supabaseUrl = dotenvValue("SUPABASE_URL").trimEnd('/')
+val supabaseAnonKey = dotenvValue("SUPABASE_ANON_KEY")
+require(supabaseUrl.isEmpty() || Regex("https://[A-Za-z0-9.-]+(:\\d+)?").matches(supabaseUrl)) { "Invalid Supabase URL format" }
+require(supabaseAnonKey.all { it.isLetterOrDigit() || it == '-' || it == '_' || it == '.' }) { "Invalid Supabase anon key format" }
+
 android {
     namespace = "com.galaxyrio.gracelauncher"
     compileSdk = 37
@@ -21,11 +30,13 @@ android {
         applicationId = "com.galaxyrio.gracelauncher"
         minSdk = 28
         targetSdk = 37
-        versionCode = 19
-        versionName = "1.2.11"
+        versionCode = 20
+        versionName = "1.2.12"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TAVILY_API_KEY", "\"$tavilyKey\"")
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
     }
 
     buildTypes {

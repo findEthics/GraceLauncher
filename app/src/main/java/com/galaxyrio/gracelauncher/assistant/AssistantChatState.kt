@@ -17,6 +17,8 @@ internal data class ChatTurn(
     val sourceNumbers: List<Int>? = null,
     /** App-rendered freshness card of a Health turn (RAM only). */
     val healthCard: HealthCard? = null,
+    /** App-rendered memory card (RAM only; never part of model context). */
+    val memoryCard: com.galaxyrio.gracelauncher.assistant.memory.MemoryCard? = null,
 ) {
     fun number(index: Int) = sourceNumbers?.getOrNull(index) ?: (index + 1)
     val webSearch get() = source == ChatSource.WEB
@@ -34,6 +36,8 @@ class AssistantChatState {
     internal var turns by mutableStateOf<List<ChatTurn>>(emptyList()); private set
     var contextDropped by mutableStateOf(false); private set
     var source by mutableStateOf(ChatSource.WEB)
+    /** One-shot memory action mode (separate from [source]); applies to the next submit only. */
+    internal var memoryChip by mutableStateOf<com.galaxyrio.gracelauncher.assistant.memory.MemoryChip?>(null)
     var webSearchEnabled: Boolean
         get() = source == ChatSource.WEB
         set(value) { source = if (value) ChatSource.WEB else ChatSource.NONE }
@@ -41,9 +45,9 @@ class AssistantChatState {
 
     fun open() { visible = true }
     fun minimize() { visible = false }
-    fun clear() { visible = false; draft = ""; turns = emptyList(); contextDropped = false; source = ChatSource.WEB }
-    internal fun begin(request: String, action: Boolean): Long {
-        val turn = ChatTurn(++nextId, request, action, source = if (action) ChatSource.NONE else source)
+    fun clear() { visible = false; draft = ""; turns = emptyList(); contextDropped = false; source = ChatSource.WEB; memoryChip = null }
+    internal fun begin(request: String, action: Boolean, memory: Boolean = false): Long {
+        val turn = ChatTurn(++nextId, request, action, source = if (action || memory) ChatSource.NONE else source)
         turns = turns + turn
         draft = ""
         return turn.id
@@ -57,6 +61,11 @@ class AssistantChatState {
         turns = turns.map { if (it.id == id && !it.complete) it.copy(healthCard = card) else it }
     }
     internal fun response(id: Long) = turns.firstOrNull { it.id == id }?.response.orEmpty()
+    /** Memory turns stay interactive after completion (Save/pick/confirm replace the card); never in model context. */
+    internal fun memory(id: Long, card: com.galaxyrio.gracelauncher.assistant.memory.MemoryCard, response: String) {
+        turns = turns.map { if (it.id == id) it.copy(memoryCard = card, response = response, complete = true, inContext = false) else it }
+    }
+    internal fun memoryCard(id: Long) = turns.firstOrNull { it.id == id }?.memoryCard
     /** [numbers]/[provider] are only passed when earlier cards are re-shown under their original numbers; null keeps the turn's own. */
     internal fun searchDetails(id: Long, sources: List<WebSource>, warning: String,
         numbers: List<Int>? = null, provider: ChatSource? = null) {

@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
@@ -19,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.*
@@ -32,6 +35,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.toggleableState
@@ -45,6 +49,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.galaxyrio.gracelauncher.R
+import com.galaxyrio.gracelauncher.assistant.memory.*
 import kotlinx.coroutines.launch
 import java.net.URI
 
@@ -74,7 +79,51 @@ internal fun AssistantChat(assistant: AssistantController) {
     if (!assistant.chat.visible) return
     AssistantChatWindow(assistant.chat, assistant.busy, assistant.canCancel, assistant.status,
         onSend = assistant::submit, onStop = assistant::cancel, onClose = assistant::closeChat,
-        onFocus = assistant::composerFocusChanged, healthAvailable = assistant.healthAvailable)
+        onFocus = assistant::composerFocusChanged, healthAvailable = assistant.healthAvailable, memoryActions = assistant.memoryActions)
+}
+
+private fun memoryChipLabel(chip: MemoryChip) = when (chip) {
+    MemoryChip.SAVE -> R.string.memory_chip_save
+    MemoryChip.RECALL -> R.string.memory_chip_recall
+    MemoryChip.DELETE -> R.string.memory_chip_delete
+    MemoryChip.PURGE -> R.string.memory_chip_purge
+}
+
+private fun SlashCommand.chip(): MemoryChip? = when (this) {
+    SlashCommand.REMEMBER -> MemoryChip.SAVE
+    SlashCommand.RECALL -> MemoryChip.RECALL
+    SlashCommand.FORGET -> MemoryChip.DELETE
+    SlashCommand.PURGE -> MemoryChip.PURGE
+    else -> null
+}
+
+private fun SlashCommand.source(): ChatSource? = when (this) {
+    SlashCommand.WEB -> ChatSource.WEB
+    SlashCommand.WIKIPEDIA -> ChatSource.WIKIPEDIA
+    SlashCommand.HEALTH -> ChatSource.HEALTH
+    else -> null
+}
+
+private fun SlashCommand.description() = when (this) {
+    SlashCommand.WEB -> R.string.slash_web
+    SlashCommand.WIKIPEDIA -> R.string.slash_wikipedia
+    SlashCommand.HEALTH -> R.string.slash_health
+    SlashCommand.REMEMBER -> R.string.slash_remember
+    SlashCommand.RECALL -> R.string.slash_recall
+    SlashCommand.FORGET -> R.string.slash_forget
+    SlashCommand.PURGE -> R.string.slash_purge
+    SlashCommand.HISTORY -> R.string.slash_history
+}
+
+/** A source/memory row becomes the same chip the + menu sets (one-shot memory chips replace each other); /history just types its prefix. */
+private fun applySlash(chat: AssistantChatState, command: SlashCommand) {
+    val source = command.source()
+    val chip = command.chip()
+    when {
+        source != null -> { chat.source = source; chat.draft = "" }
+        chip != null -> { chat.memoryChip = chip; chat.draft = "" }
+        else -> chat.draft = "/history "
+    }
 }
 
 private fun sourceLabel(source: ChatSource) = when (source) {
@@ -87,6 +136,7 @@ private fun sourceLabel(source: ChatSource) = when (source) {
 internal fun AssistantChatWindow(
     chat: AssistantChatState, busy: Boolean, canCancel: Boolean, status: String,
     onSend: () -> Unit, onStop: () -> Unit, onClose: () -> Unit, onFocus: (Boolean) -> Unit = {}, healthAvailable: Boolean = false,
+    memoryActions: MemoryActions = MemoryActions.None,
 ) {
     BackHandler(onBack = onClose)
     val focus = remember { FocusRequester() }
@@ -97,7 +147,7 @@ internal fun AssistantChatWindow(
     LaunchedEffect(chat.turns.size, chat.turns.lastOrNull()?.response) {
         if (chat.turns.isNotEmpty() && !scroll.isScrollInProgress) scroll.scrollToItem(chat.turns.lastIndex)
     }
-    val send = { if (!busy && chat.draft.isNotBlank()) onSend() }
+    val send = { if (!busy && (chat.draft.isNotBlank() || chat.memoryChip == MemoryChip.RECALL)) onSend() }
     val messageDescription = stringResource(R.string.assistant_message)
     val removeWebDescription = stringResource(R.string.assistant_remove_web_search)
     val removeWikipediaDescription = stringResource(R.string.assistant_remove_wikipedia)
@@ -105,6 +155,12 @@ internal fun AssistantChatWindow(
     val toolsDescription = stringResource(R.string.assistant_tools)
     val uriHandler = LocalUriHandler.current
     var toolsExpanded by remember { mutableStateOf(false) }
+    // Both reset on any text edit, so Escape hides the popup only until the next keystroke.
+    var slashDismissed by remember(chat.draft) { mutableStateOf(false) }
+    var slashIndex by remember(chat.draft) { mutableIntStateOf(0) }
+    val slashRows = if (slashDismissed) emptyList() else slashSuggestions(chat.draft, healthAvailable)
+    val slashSelected = slashIndex.coerceIn(0, (slashRows.size - 1).coerceAtLeast(0))
+    val slashDescription = stringResource(R.string.slash_popup)
     Surface(Modifier.fillMaxSize().testTag("assistant_chat_window")) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
             if (chat.contextDropped) Text(stringResource(R.string.assistant_context_rolled), Modifier.padding(16.dp).testTag("assistant_context_notice"), style = MaterialTheme.typography.bodySmall)
@@ -133,6 +189,7 @@ internal fun AssistantChatWindow(
                                 Text(turn.response.ifBlank { stringResource(R.string.assistant_processing) },
                                     Modifier.testTag("assistant_response:${turn.id}"))
                                 turn.healthCard?.let { HealthStatusCard(turn.id, it) }
+                                turn.memoryCard?.let { MemoryCardView(turn.id, it, memoryActions) }
                                 if (turn.webSearch && turn.complete && turn.inContext && turn.response.isNotBlank() &&
                                     turn.searchWarning.isBlank() && turn.sources.isNotEmpty()) {
                                     Text(pluralStringResource(R.plurals.assistant_web_results_disclosure, turn.sources.size, turn.sources.size),
@@ -165,18 +222,58 @@ internal fun AssistantChatWindow(
                 Text(status, Modifier.padding(horizontal = 16.dp).testTag("assistant_status"), style = MaterialTheme.typography.bodySmall)
             Column(Modifier.fillMaxWidth().padding(12.dp)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    chat.memoryChip?.let { chip ->
+                        val label = stringResource(memoryChipLabel(chip))
+                        val remove = stringResource(R.string.memory_chip_remove, label)
+                        InputChip(selected = true, onClick = { chat.memoryChip = null }, label = { Text(label) }, trailingIcon = { Text("×") },
+                            modifier = Modifier.testTag("assistant_memory_chip").semantics { contentDescription = remove })
+                    }
                     if (chat.source != ChatSource.NONE) InputChip(selected = true,
                         onClick = { chat.source = ChatSource.NONE },
                         label = { Text(stringResource(sourceLabel(chat.source))) }, trailingIcon = { Text("×") },
                         modifier = Modifier.testTag(when (chat.source) { ChatSource.WIKIPEDIA -> "assistant_wikipedia_chip"; ChatSource.HEALTH -> "assistant_health_chip"; else -> "assistant_web_chip" })
                             .semantics { contentDescription = when (chat.source) { ChatSource.WIKIPEDIA -> removeWikipediaDescription; ChatSource.HEALTH -> removeHealthDescription; else -> removeWebDescription } })
                 }
+                if (slashRows.isNotEmpty()) Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).testTag("assistant_slash_popup")
+                    .semantics { contentDescription = slashDescription }, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    slashRows.forEachIndexed { index, command ->
+                        val description = stringResource(command.description())
+                        Surface(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().semantics { selected = index == slashSelected },
+                            color = if (index == slashSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer) {
+                            TextButton(onClick = { applySlash(chat, command) },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).focusProperties { canFocus = false }
+                                    .testTag("assistant_slash_row_${command.token}")
+                                    .semantics { contentDescription = "/${command.token}, $description" }) {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text("/${command.token}", style = MaterialTheme.typography.titleSmall)
+                                    Text(description, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = chat.input, onValueChange = { chat.input = it },
                     modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { onFocus(it.isFocused) }
                         .semantics { contentDescription = messageDescription }
                         .testTag("assistant_chat_input").onPreviewKeyEvent { event ->
-                            if (event.key != Key.Enter && event.key != Key.NumPadEnter) false
+                            val enter = event.key == Key.Enter || event.key == Key.NumPadEnter
+                            val popupKey = slashRows.isNotEmpty() && (event.key == Key.DirectionUp || event.key == Key.DirectionDown ||
+                                event.key == Key.Tab || event.key == Key.Escape || (enter && !event.isShiftPressed))
+                            if (popupKey) {
+                                if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
+                                    val last = slashRows.lastIndex
+                                    when (event.key) {
+                                        Key.DirectionUp -> slashIndex = (slashSelected - 1).coerceAtLeast(0)
+                                        Key.DirectionDown -> slashIndex = (slashSelected + 1).coerceAtMost(last)
+                                        Key.Tab -> slashIndex = if (event.isShiftPressed) (slashSelected + last) % (last + 1) else (slashSelected + 1) % (last + 1)
+                                        Key.Escape -> slashDismissed = true
+                                        else -> applySlash(chat, slashRows[slashSelected])
+                                    }
+                                }
+                                true
+                            } else if (!enter) false
                             else {
                                 if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
                                     if (event.isShiftPressed) {
@@ -203,6 +300,15 @@ internal fun AssistantChatWindow(
                                         onClick = { chat.source = if (chat.source == source) ChatSource.NONE else source; toolsExpanded = false },
                                         modifier = Modifier.testTag(when (source) { ChatSource.WIKIPEDIA -> "assistant_wikipedia_option"; ChatSource.HEALTH -> "assistant_health_option"; else -> "assistant_web_search_option" }).semantics {
                                             role = Role.Checkbox; toggleableState = ToggleableState(chat.source == source)
+                                        })
+                                }
+                                HorizontalDivider()
+                                for (chip in MemoryChip.entries) {
+                                    DropdownMenuItem(text = { Text(stringResource(memoryChipLabel(chip))) },
+                                        leadingIcon = { Checkbox(checked = chat.memoryChip == chip, onCheckedChange = null) },
+                                        onClick = { chat.memoryChip = if (chat.memoryChip == chip) null else chip; toolsExpanded = false },
+                                        modifier = Modifier.testTag("assistant_memory_option_${chip.name.lowercase()}").semantics {
+                                            role = Role.Checkbox; toggleableState = ToggleableState(chat.memoryChip == chip)
                                         })
                                 }
                             }
@@ -251,6 +357,162 @@ private fun HealthStatusCard(turnId: Long, card: HealthCard) {
     }
 }
 
+private val MEMORY_DATE: java.time.format.DateTimeFormatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")
+private val MEMORY_DATE_TIME: java.time.format.DateTimeFormatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+
+@Composable
+private fun memoryEntryText(e: MemoryEntry): String {
+    val zone = remember { java.time.ZoneId.systemDefault() }
+    val saved = MEMORY_DATE.format(java.time.Instant.ofEpochMilli(e.validFrom).atZone(zone))
+    val whenText = e.occurredAt?.takeIf { e.type == MemoryType.EVENT }
+        ?.let { MEMORY_DATE_TIME.format(java.time.Instant.ofEpochMilli(it).atZone(zone)) + " · " }.orEmpty()
+    val flags = (if (e.conflict) " · " + stringResource(R.string.memory_conflict) else "") +
+        (if (e.status != MemoryStatus.ACTIVE) " · " + e.status.wire else "")
+    return "${e.type.wire} · ${e.subject}: ${e.body} ($whenText$saved)$flags"
+}
+
+/** App-rendered memory cards: never model text and never part of model context. */
+@Composable
+private fun MemoryCardView(turnId: Long, card: MemoryCard, actions: MemoryActions) {
+    val cancel = stringResource(R.string.assistant_cancel)
+    Surface(Modifier.fillMaxWidth().padding(top = 8.dp).testTag("assistant_memory_card:$turnId"),
+        shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            when (card) {
+                is MemoryCard.Save -> MemorySaveCard(turnId, card, actions)
+                is MemoryCard.Pick -> {
+                    card.state.cards.forEachIndexed { i, e ->
+                        TextButton(onClick = { actions.pick(turnId, i + 1) }, modifier = Modifier.heightIn(min = 48.dp).testTag("assistant_memory_pick:$turnId:$i")) {
+                            Text("${i + 1}. " + memoryEntryText(e), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    TextButton(onClick = { actions.cancel(turnId) }, modifier = Modifier.heightIn(min = 48.dp).testTag("assistant_memory_cancel:$turnId")) { Text(cancel) }
+                }
+                is MemoryCard.Confirm -> {
+                    Text(memoryEntryText(card.state.card), style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { actions.confirm(turnId) }, modifier = Modifier.heightIn(min = 48.dp).testTag("assistant_memory_confirm:$turnId")) {
+                            Text(stringResource(R.string.memory_erase_confirm))
+                        }
+                        TextButton(onClick = { actions.cancel(turnId) }, modifier = Modifier.heightIn(min = 48.dp).testTag("assistant_memory_cancel:$turnId")) { Text(cancel) }
+                    }
+                }
+                is MemoryCard.Entries -> card.entries.forEachIndexed { i, e ->
+                    Text("${i + 1}. " + memoryEntryText(e), Modifier.testTag("assistant_memory_entry:$turnId:$i"), style = MaterialTheme.typography.bodySmall)
+                }
+                is MemoryCard.Note -> Unit // the turn's response text carries the note
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemorySaveCard(turnId: Long, card: MemoryCard.Save, actions: MemoryActions) {
+    var type by remember(turnId, card.draft.type) { mutableStateOf(card.draft.type) }
+    var subject by remember(turnId, card.draft.subject) { mutableStateOf(card.draft.subject) }
+    var body by remember(turnId, card.draft.body) { mutableStateOf(card.draft.body) }
+    var typeMenu by remember { mutableStateOf(false) }
+    val draft = MemoryDraft(type, subject, body, card.draft.occurredAt)
+    val zone = remember { java.time.ZoneId.systemDefault() }
+    val subjectLabel = stringResource(R.string.memory_field_subject)
+    val textLabel = stringResource(R.string.memory_field_text)
+    Box {
+        TextButton(onClick = { typeMenu = true }, modifier = Modifier.heightIn(min = 48.dp).testTag("assistant_memory_type:$turnId")) {
+            Text(stringResource(R.string.memory_field_type, type.wire))
+        }
+        DropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
+            MemoryType.entries.forEach { t -> DropdownMenuItem(text = { Text(t.wire) }, onClick = { type = t; typeMenu = false; if (draft.type != t) actions.edit(turnId, draft.copy(type = t)) }) }
+        }
+    }
+    OutlinedTextField(subject, { subject = it }, label = { Text(subjectLabel) }, singleLine = true,
+        modifier = Modifier.fillMaxWidth().testTag("assistant_memory_subject:$turnId").semantics { contentDescription = subjectLabel })
+    OutlinedTextField(body, { body = it }, label = { Text(textLabel) }, maxLines = 5,
+        modifier = Modifier.fillMaxWidth().testTag("assistant_memory_text:$turnId").semantics { contentDescription = textLabel })
+    card.draft.occurredAt?.takeIf { type == MemoryType.EVENT }?.let {
+        Text(stringResource(R.string.memory_field_when, MEMORY_DATE_TIME.format(java.time.Instant.ofEpochMilli(it).atZone(zone))), style = MaterialTheme.typography.bodySmall)
+    }
+    if (card.candidates.isNotEmpty()) {
+        Text(stringResource(R.string.memory_replaces), style = MaterialTheme.typography.labelSmall)
+        card.candidates.forEachIndexed { i, c ->
+            val on = card.replaceId == c.entry.id
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected = on, role = Role.Checkbox,
+                onClick = { actions.toggleReplace(turnId, if (on) null else c.entry.id) }).testTag("assistant_memory_replace:$turnId:$i"),
+                verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = on, onCheckedChange = null)
+                Text(memoryEntryText(c.entry), Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+    if (card.invalid) Text(stringResource(R.string.memory_invalid), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = { actions.save(turnId, draft) }, modifier = Modifier.heightIn(min = 48.dp).testTag("assistant_memory_save:$turnId")) {
+            Text(stringResource(R.string.memory_save))
+        }
+        TextButton(onClick = { actions.cancel(turnId) }, modifier = Modifier.heightIn(min = 48.dp).testTag("assistant_memory_cancel:$turnId")) {
+            Text(stringResource(R.string.assistant_cancel))
+        }
+    }
+}
+
+@Composable
+private fun MemorySettings() {
+    val context = LocalContext.current.applicationContext
+    val scope = rememberCoroutineScope()
+    var status by remember { mutableStateOf<MemorySyncStatus?>(null) }
+    var refresh by remember { mutableIntStateOf(0) }
+    var syncing by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<SyncOutcome?>(null) }
+    LaunchedEffect(refresh) { status = MemoryRuntime.get(context).status() }
+    val zone = remember { java.time.ZoneId.systemDefault() }
+    val text = when (val s = status) {
+        null, MemorySyncStatus.LocalOnly -> stringResource(R.string.memory_status_local_only)
+        is MemorySyncStatus.Synced -> stringResource(R.string.memory_status_synced, MEMORY_DATE_TIME.format(java.time.Instant.ofEpochMilli(s.at).atZone(zone)))
+        is MemorySyncStatus.Pending -> stringResource(R.string.memory_status_pending, s.count)
+    }
+    Text(text, Modifier.testTag("assistant_memory_status"), style = MaterialTheme.typography.bodySmall)
+    Button(enabled = !syncing, modifier = Modifier.heightIn(min = 48.dp).testTag("assistant_memory_sync"), onClick = {
+        syncing = true; result = null
+        scope.launch {
+            result = MemoryRuntime.get(context).syncLocalNow()
+            syncing = false; refresh++
+        }
+    }) { Text(stringResource(if (syncing) R.string.memory_sync_running else R.string.memory_sync_now)) }
+    result?.let {
+        Text(stringResource(when (it) {
+            SyncOutcome.Synced -> R.string.memory_sync_result_synced
+            SyncOutcome.Failed -> R.string.memory_sync_result_failed
+            SyncOutcome.LocalOnly -> R.string.memory_sync_result_local_only
+        }), Modifier.testTag("assistant_memory_sync_result"), style = MaterialTheme.typography.bodySmall)
+    }
+    HelpSection(stringResource(R.string.memory_help_title), "assistant_memory_help_toggle", "assistant_memory_help") {
+        Text(stringResource(R.string.memory_help_body), style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(R.string.memory_sql_title), style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.memory_sql_warning), style = MaterialTheme.typography.bodySmall)
+        SelectionContainer {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                for ((label, sql) in listOf(R.string.memory_sql_list to MemorySql.LIST, R.string.memory_sql_purge_one to MemorySql.PURGE_ONE,
+                    R.string.memory_sql_purge_all to MemorySql.PURGE_ALL, R.string.memory_sql_tombstones to MemorySql.TOMBSTONES)) {
+                    Text(stringResource(label), style = MaterialTheme.typography.labelMedium)
+                    Text(sql, Modifier.horizontalScroll(rememberScrollState()), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall, softWrap = false)
+                }
+            }
+        }
+    }
+}
+
+/** Collapsed-by-default toggle row; also used by magic/ keyboard help. */
+@Composable
+internal fun HelpSection(title: String, toggleTag: String, contentTag: String, content: @Composable ColumnScope.() -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    TextButton(onClick = { open = !open }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag(toggleTag)
+        .semantics { stateDescription = if (open) "expanded" else "collapsed" }) {
+        Text((if (open) "▾ " else "▸ ") + title, Modifier.fillMaxWidth())
+    }
+    if (open) Column(Modifier.testTag(contentTag), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+}
+
 @Composable
 private fun HealthSettings() {
     val context = LocalContext.current.applicationContext
@@ -273,6 +535,7 @@ private fun HealthSettings() {
             val token = field
             if (!vault.saveToken(token)) { status = context.getString(R.string.assistant_health_status_invalid); return@Button }
             field = ""; saved = true; checking = true
+            MemoryRuntime.get(context).syncSoon() // notes queued before a token existed
             status = context.getString(R.string.assistant_health_status_saved)
             scope.launch {
                 status = try {
@@ -381,10 +644,15 @@ fun AssistantSettings(modifier: Modifier = Modifier) {
         HorizontalDivider()
         HealthSettings()
         HorizontalDivider()
-        Text(stringResource(R.string.assistant_privacy), style = MaterialTheme.typography.bodyMedium)
-        Text(stringResource(R.string.assistant_show_home_button_hint), style = MaterialTheme.typography.bodySmall)
-        Text(stringResource(R.string.assistant_chat_hint), style = MaterialTheme.typography.bodySmall)
-        Text(stringResource(R.string.assistant_direct_actions), style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(R.string.memory_title), style = MaterialTheme.typography.titleMedium)
+        MemorySettings()
+        HorizontalDivider()
+        HelpSection(stringResource(R.string.assistant_help_title), "assistant_help_toggle", "assistant_help") {
+            Text(stringResource(R.string.assistant_privacy), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.assistant_show_home_button_hint), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.assistant_chat_hint), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.assistant_direct_actions), style = MaterialTheme.typography.bodySmall)
+        }
     }
     if (picking) AlertDialog(
         onDismissRequest = { picking = false },

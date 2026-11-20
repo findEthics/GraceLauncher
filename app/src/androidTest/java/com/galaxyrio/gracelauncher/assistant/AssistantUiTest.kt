@@ -227,7 +227,20 @@ class AssistantUiTest {
         compose.onNodeWithTag("assistant_token").assertDoesNotExist()
         compose.onNodeWithTag("assistant_speech_status").assertDoesNotExist()
         compose.onNodeWithTag("assistant_speech_settings").assertDoesNotExist()
+        compose.onNodeWithTag("assistant_help_toggle").performScrollTo().performClick()
         compose.onNodeWithText(compose.activity.getString(R.string.assistant_chat_hint)).performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun advancedHelpSectionsStartCollapsedAndExpand() {
+        compose.setContent { MaterialTheme { AssistantSettings() } }
+        for ((toggle, content) in listOf("assistant_help_toggle" to "assistant_help", "assistant_memory_help_toggle" to "assistant_memory_help")) {
+            compose.onNodeWithTag(content).assertDoesNotExist()
+            compose.onNodeWithTag(toggle).performScrollTo().assertIsDisplayed()
+            assertEquals("collapsed", compose.onNodeWithTag(toggle).fetchSemanticsNode().config[SemanticsProperties.StateDescription])
+            compose.onNodeWithTag(toggle).performClick()
+            compose.onNodeWithTag(content).assertExists()
+            assertEquals("expanded", compose.onNodeWithTag(toggle).fetchSemanticsNode().config[SemanticsProperties.StateDescription])
+        }
     }
     @Test fun advancedHomeButtonPreferenceUpdatesOtherOwnersAndSurvivesRecreation() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -434,5 +447,99 @@ class AssistantUiTest {
         compose.onNodeWithText("Action result").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("assistant_response:$turn").assertTextEquals(result)
         compose.onNodeWithTag("assistant_status").assertTextEquals("Download Gemma 4 in Advanced settings")
+    }
+
+    private fun slashChat(health: Boolean = false, onSend: () -> Unit = {}): AssistantChatState {
+        val chat = AssistantChatState()
+        compose.setContent { MaterialTheme {
+            AssistantChatWindow(chat, false, true, "", onSend = onSend, onStop = {}, onClose = {}, healthAvailable = health)
+        } }
+        return chat
+    }
+
+    @Test fun slashPopupShowsFiltersAndHidesOnSpaceOrNoMatch() {
+        slashChat()
+        val input = compose.onNodeWithTag("assistant_chat_input")
+        compose.onNodeWithTag("assistant_slash_popup").assertDoesNotExist()
+        input.performTextInput("/")
+        compose.onNodeWithTag("assistant_slash_popup").assertIsDisplayed()
+        for (t in listOf("web", "wikipedia", "remember", "recall", "forget", "purge", "history"))
+            compose.onNodeWithTag("assistant_slash_row_$t").assertExists()
+        compose.onNodeWithTag("assistant_slash_row_health").assertDoesNotExist()
+        input.performTextClearance(); input.performTextInput("/del")
+        compose.onNodeWithTag("assistant_slash_row_forget").assertExists()
+        compose.onNodeWithTag("assistant_slash_row_web").assertDoesNotExist()
+        input.performTextClearance(); input.performTextInput("/xyz")
+        compose.onNodeWithTag("assistant_slash_popup").assertDoesNotExist()
+        input.performTextClearance(); input.performTextInput("/remember milk")
+        compose.onNodeWithTag("assistant_slash_popup").assertDoesNotExist()
+    }
+
+    @Test fun slashPopupShowsHealthRowOnlyWithToken() {
+        slashChat(health = true)
+        compose.onNodeWithTag("assistant_chat_input").performTextInput("/")
+        compose.onNodeWithTag("assistant_slash_row_health").assertExists()
+    }
+
+    @Test fun slashEnterAppliesFirstRowAndDownEnterTheSecond() {
+        val chat = slashChat()
+        val input = compose.onNodeWithTag("assistant_chat_input")
+        input.performTextInput("/w")
+        input.performKeyInput { pressKey(Key.Enter) }
+        compose.runOnIdle { assertEquals(ChatSource.WEB, chat.source); assertEquals("", chat.draft) }
+        input.performTextInput("/w")
+        input.performKeyInput { pressKey(Key.DirectionDown); pressKey(Key.Enter) }
+        compose.runOnIdle { assertEquals(ChatSource.WIKIPEDIA, chat.source); assertEquals("", chat.draft) }
+        compose.onNodeWithTag("assistant_wikipedia_chip").assertIsSelected()
+    }
+
+    @Test fun slashMemoryRowSelectsOneShotChipAndTapAppliesRow() {
+        val chat = slashChat()
+        val input = compose.onNodeWithTag("assistant_chat_input")
+        input.performTextInput("/rec")
+        compose.onNodeWithTag("assistant_slash_row_recall").performClick()
+        compose.runOnIdle { assertEquals(com.galaxyrio.gracelauncher.assistant.memory.MemoryChip.RECALL, chat.memoryChip); assertEquals("", chat.draft) }
+        compose.onNodeWithTag("assistant_memory_chip").assertIsDisplayed()
+        input.performTextInput("/forg")
+        input.performKeyInput { pressKey(Key.Enter) }
+        compose.runOnIdle { assertEquals(com.galaxyrio.gracelauncher.assistant.memory.MemoryChip.DELETE, chat.memoryChip) }
+    }
+
+    @Test fun slashEscapeHidesUntilNextEditAndHistoryInsertsText() {
+        val chat = slashChat()
+        val input = compose.onNodeWithTag("assistant_chat_input")
+        input.performTextInput("/")
+        input.performKeyInput { pressKey(Key.Escape) }
+        compose.onNodeWithTag("assistant_slash_popup").assertDoesNotExist()
+        compose.runOnIdle { assertEquals("/", chat.draft) }
+        input.performTextInput("h")
+        compose.onNodeWithTag("assistant_slash_row_history").assertExists()
+        input.performKeyInput { pressKey(Key.Enter) }
+        compose.runOnIdle { assertEquals("/history ", chat.draft) }
+        compose.onNodeWithTag("assistant_slash_popup").assertDoesNotExist()
+    }
+
+    @Test fun slashShiftEnterStillInsertsNewlineAndNoMatchEnterSubmits() {
+        var sends = 0
+        val chat = slashChat(onSend = { sends++ })
+        val input = compose.onNodeWithTag("assistant_chat_input")
+        input.performTextInput("/xyz")
+        input.performKeyInput { pressKey(Key.Enter) }
+        compose.runOnIdle { assertEquals(1, sends) }
+        input.performTextClearance(); input.performTextInput("/")
+        input.performKeyInput { keyDown(Key.ShiftLeft); pressKey(Key.Enter); keyUp(Key.ShiftLeft) }
+        compose.runOnIdle { assertEquals("/\n", chat.draft); assertEquals(1, sends) }
+    }
+
+    @Test fun recallChipIsInMenuAndAllowsEmptySubmit() {
+        var sends = 0
+        val chat = slashChat(onSend = { sends++ })
+        compose.onNodeWithTag("assistant_chat_input").performImeAction()
+        compose.runOnIdle { assertEquals(0, sends) }
+        compose.onNodeWithTag("assistant_tools").performClick()
+        compose.onNodeWithTag("assistant_memory_option_recall").assertIsOff().performClick()
+        compose.onNodeWithTag("assistant_memory_chip").assertIsDisplayed()
+        compose.onNodeWithTag("assistant_chat_input").performImeAction()
+        compose.runOnIdle { assertEquals(1, sends); assertEquals(com.galaxyrio.gracelauncher.assistant.memory.MemoryChip.RECALL, chat.memoryChip) }
     }
 }

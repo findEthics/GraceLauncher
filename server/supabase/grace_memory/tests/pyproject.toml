@@ -1,0 +1,11 @@
+[project]
+name = "grace-memory-tests"
+version = "0"
+requires-python = ">=3.11"
+dependencies = ["pytest>=8", "psycopg[binary]>=3.2"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["."]

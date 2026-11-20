@@ -649,7 +649,9 @@ internal fun MagicAdvancedSettings() {
     var settings by remember { mutableStateOf(false) }
     TextButton(onClick = { settings = true }) { Text(stringResource(R.string.magic_settings)) }
     Text(stringResource(R.string.magic_title), style = MaterialTheme.typography.titleLarge)
-    Text(stringResource(R.string.magic_help), style = MaterialTheme.typography.bodyMedium)
+    com.galaxyrio.gracelauncher.assistant.HelpSection(stringResource(R.string.magic_help_title), "magic_help_toggle", "magic_help_section") {
+        Text(stringResource(R.string.magic_help), style = MaterialTheme.typography.bodySmall)
+    }
     if (settings) MagicSettingsDialog(prefs, actions) { settings = false }
 }
 

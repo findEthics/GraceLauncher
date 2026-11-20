@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.google.ai.edge.litertlm.*
 import com.galaxyrio.gracelauncher.R
+import com.galaxyrio.gracelauncher.assistant.memory.*
 import java.io.File
 import java.text.BreakIterator
 import java.time.ZonedDateTime
@@ -43,6 +44,9 @@ class AssistantController(private val context: Context, private val scope: Corou
     private var composerEverFocused = false
     private var shortcutKey: Int? = null
     private val healthVault by lazy { HealthVault.create(context) }
+    private val memory by lazy { MemoryRuntime.get(context) }
+    private val memoryConnectivity = MemoryConnectivity(context) { memory.syncSoon() }
+    private val memoryBusy = mutableSetOf<Long>()
     /** The Health row/chip exist only while a token is saved; refreshed on open/resume (Advanced is another activity). */
     var healthAvailable by mutableStateOf(false); private set
     fun refreshHealth() {
@@ -115,13 +119,15 @@ class AssistantController(private val context: Context, private val scope: Corou
             if (!chat.visible) composerEverFocused = false
             refreshHealth()
             chat.open()
+            memoryConnectivity.register()
+            memory.syncSoon()
         }
     }
     internal fun composerFocusChanged(focused: Boolean) {
         composerFocused = focused
         if (focused) composerEverFocused = true
     }
-    fun closeChat() { if (!downloading) cancel(); chat.clear(); status = "" }
+    fun closeChat() { if (!downloading) cancel(); chat.clear(); status = ""; memoryConnectivity.unregister() }
     fun pause() { shortcutKey = null; if (!downloading) cancel() }
 
     /** Activity-level handling works even when HOME has no focused Compose node. */
@@ -155,7 +161,16 @@ class AssistantController(private val context: Context, private val scope: Corou
 
     /** The same entry point handles IME and hardware Enter; a busy send is never queued. */
     fun submit() {
-        if (!enabled || busy || chat.draft.isBlank()) return
+        if (!enabled || busy) return
+        if (chat.draft.isBlank() && chat.memoryChip != MemoryChip.RECALL) return
+        // "/web x", "/wikipedia x", "/wiki x", "/health x": select that source for the session and send only "x".
+        parseSourcePrefix(chat.draft, healthAvailable)?.let { (source, rest) ->
+            chat.source = source
+            chat.draft = rest
+            if (rest.isBlank()) return
+        }
+        // Memory commands are parsed before any model call; they work without a downloaded model (subject falls back to rules).
+        parseMemoryCommand(chat.draft, chat.memoryChip)?.let { submitMemory(it); return }
         if (!ready()) { status = "Download an assistant model in Advanced settings"; return }
         val input = chat.draft
         val source = chat.source
@@ -187,9 +202,13 @@ class AssistantController(private val context: Context, private val scope: Corou
                     complete(turn, "Message is too long for the local context. Shorten it and send again. No action performed.")
                     return@launch
                 }
-                val history = chat.context(historyContextTokens(inputTokens, reserve))
+                // The prefetch block (<=400 tokens) comes out of the history share; evidence budgets are unchanged.
+                val historyBudget = historyContextTokens(inputTokens, reserve)
+                val block = memoryBlockFor(input, minOf(MEMORY_BLOCK_MAX_TOKENS, historyBudget / 2))
+                val blockTokens = estimateTokens(block)
+                val history = chat.context(historyBudget - blockTokens)
                 val webBudget = if (webSearch) minOf(MAX_WEB_CONTEXT_TOKENS,
-                    CHAT_INPUT_TOKENS - inputTokens - usedHistoryTokens(history)) else 0
+                    CHAT_INPUT_TOKENS - inputTokens - usedHistoryTokens(history) - blockTokens) else 0
                 status = ""
                 val onResponse: suspend (String) -> Unit = { response ->
                     withContext(Dispatchers.Main.immediate) { if (id == generation) chat.update(turn, response) }
@@ -198,7 +217,7 @@ class AssistantController(private val context: Context, private val scope: Corou
                     val ran = HealthTurn(healthVault, fetch = { token, zone, weekly -> HealthMcpClient().fetch(token, zone, weekly) })
                         .run(input,
                             onCard = { card -> withContext(Dispatchers.Main.immediate) { if (id == generation) chat.healthCard(turn, card) } },
-                            infer = { system, evidence -> inferChat(evidence, history, onResponse, system) },
+                            infer = { system, evidence -> inferChat(evidence, history, onResponse, systemWithMemory(system, block)) },
                             onUrgent = { message -> withContext(Dispatchers.Main.immediate) { if (id == generation) complete(turn, message) } })
                     if (!ran) return@launch
                     val response = chat.response(turn)
@@ -207,14 +226,14 @@ class AssistantController(private val context: Context, private val scope: Corou
                     return@launch
                 }
                 val wikipediaSummaryGenerated = if (followUp is SourceFollowUp.Resolved) answerFromSavedSources(
-                    input, history, followUp, webBudget, turn, id, onResponse)
+                    input, history, followUp, webBudget, turn, id, block, onResponse)
                 else if (webSearch) inferWebChat(input, history, source = source,
                     webBudget = webBudget, onDetails = { sources, warning ->
                         withContext(Dispatchers.Main.immediate) {
                             if (id == generation) chat.searchDetails(turn, sources, warning)
                         }
-                    }, onResponse = onResponse)
-                else { inferChat(input, history, onResponse); false }
+                    }, memoryBlock = block, onResponse = onResponse)
+                else { inferChat(input, history, onResponse, systemWithMemory(CHAT_INSTRUCTIONS, block)); false }
                 if (id == generation) {
                     val response = chat.response(turn)
                     require(response.isNotBlank()) { "No reply produced. No action performed." }
@@ -233,6 +252,101 @@ class AssistantController(private val context: Context, private val scope: Corou
             }
         }
     }
+
+    // ---- memory-chat (slash commands / chips): parsed before any model call; the model never writes memory or picks deletes ----
+
+    /** Prefetch block for tool-free passes; "" on any failure so memory can never break a reply. Built fresh per turn, never stored. */
+    private suspend fun memoryBlockFor(input: String, maxTokens: Int): String =
+        withContext(Dispatchers.IO) { runCatching { memory.turns.block(input, maxTokens) }.getOrDefault("") }
+
+    /** Greedy tool-free subject call; null when no model is ready. Timeout/invalid output fall back inside [parseRemember]. */
+    private suspend fun inferSubject(prompt: String): String? {
+        if (!ready()) return null
+        var out: String? = null
+        try {
+            inferChat(prompt, emptyList(), { out = it }, MEMORY_SUBJECT_INSTRUCTIONS)
+        } catch (e: CancellationException) {
+            runCatching { conversation?.cancelProcess() }
+            throw e
+        }
+        return out
+    }
+
+    private fun submitMemory(command: MemoryCommand) {
+        val input = chat.draft.ifBlank { "/recall" }
+        val shown = chat.turns.lastOrNull { it.memoryCard?.shown?.isNotEmpty() == true }?.memoryCard?.shown.orEmpty()
+        val id = commands.begin() ?: run { status = "Another command is finishing. Try again shortly."; return }
+        check(commands.claim(id))
+        chat.memoryChip = null // one-shot
+        val turn = chat.begin(input, false, memory = true)
+        activeTurn = turn
+        busy = true
+        job = scope.launch {
+            try {
+                val card = withContext(Dispatchers.IO) { memory.turns.start(command, shown, ::inferSubject) }
+                if (id == generation) { setMemoryCard(turn, card); status = "" }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) {
+                if (id == generation) chat.memory(turn, MemoryCard.Note(NoteKind.INVALID), memoryText(MemoryCard.Note(NoteKind.INVALID)))
+            } finally {
+                if (id == generation) { commands.finish(); busy = false; activeTurn = null }
+            }
+        }
+    }
+
+    private fun setMemoryCard(turn: Long, card: MemoryCard) {
+        chat.memory(turn, card, memoryText(card))
+        if (card is MemoryCard.Note && card.kind in SYNC_AFTER) memory.syncSoon()
+    }
+
+    private fun memoryText(card: MemoryCard): String = context.getString(when (card) {
+        is MemoryCard.Save -> R.string.memory_card_save
+        is MemoryCard.Pick -> R.string.memory_card_pick
+        is MemoryCard.Confirm -> R.string.memory_card_confirm
+        is MemoryCard.Entries -> if (card.kind == EntriesKind.HISTORY) R.string.memory_card_history else R.string.memory_card_recall
+        is MemoryCard.Note -> when (card.kind) {
+            NoteKind.SAVED -> R.string.memory_note_saved
+            NoteKind.CANCELLED -> R.string.memory_note_cancelled
+            NoteKind.DELETED -> R.string.memory_note_deleted
+            NoteKind.ERASED -> R.string.memory_note_erased
+            NoteKind.NO_MATCH -> R.string.memory_note_no_match
+            NoteKind.NOT_FOUND -> R.string.memory_note_not_found
+            NoteKind.USAGE_REMEMBER -> R.string.memory_note_usage_remember
+            NoteKind.USAGE_HISTORY -> R.string.memory_note_usage_history
+            NoteKind.INVALID -> R.string.memory_note_invalid
+        }
+    })
+
+    /** Card interaction: runs the store work off the main thread, then swaps the turn's card. */
+    private fun memoryStep(turn: Long, step: (MemoryTurns, MemoryCard) -> MemoryCard?) {
+        val current = chat.memoryCard(turn) ?: return
+        if (!memoryBusy.add(turn)) return
+        scope.launch {
+            try {
+                val next = withContext(Dispatchers.IO) { runCatching { step(memory.turns, current) }.getOrNull() }
+                if (next != null && chat.memoryCard(turn) === current) setMemoryCard(turn, next)
+            } finally { memoryBusy.remove(turn) }
+        }
+    }
+
+    internal fun memoryEdit(turn: Long, draft: MemoryDraft) = memoryStep(turn) { t, c -> (c as? MemoryCard.Save)?.let { t.edit(it, draft) } }
+    internal fun memoryToggleReplace(turn: Long, id: String?) = memoryStep(turn) { t, c -> (c as? MemoryCard.Save)?.let { t.toggleReplace(it, id) } }
+    internal fun memorySave(turn: Long, draft: MemoryDraft) = memoryStep(turn) { t, c -> (c as? MemoryCard.Save)?.let { c0 ->
+        // The user may have edited type/subject/text: recompute candidates; keep the replace pick only if it is still a candidate.
+        val edited = t.edit(c0, draft)
+        t.save(edited.copy(replaceId = pickReplace(edited.candidates, c0.replaceId))) } }
+    internal fun memoryPick(turn: Long, n: Int) = memoryStep(turn) { t, c -> (c as? MemoryCard.Pick)?.let { t.pick(it, n) } }
+    internal fun memoryConfirm(turn: Long) = memoryStep(turn) { t, c -> (c as? MemoryCard.Confirm)?.let { t.confirm(it) } }
+    internal fun memoryCancel(turn: Long) = memoryStep(turn) { _, c ->
+        if (c is MemoryCard.Save || c is MemoryCard.Pick || c is MemoryCard.Confirm) MemoryCard.Note(NoteKind.CANCELLED) else null
+    }
+
+    /** Card callbacks for [AssistantChat]. */
+    internal val memoryActions = MemoryActions(
+        edit = { t, d -> memoryEdit(t, d) }, toggleReplace = { t, id -> memoryToggleReplace(t, id) },
+        save = { t, d -> memorySave(t, d) }, pick = { t, n -> memoryPick(t, n) },
+        confirm = { t -> memoryConfirm(t) }, cancel = { t -> memoryCancel(t) },
+    )
 
     private fun complete(turn: Long, result: String, inContext: Boolean = false) {
         val stillPresent = chat.turns.any { it.id == turn }
@@ -329,12 +443,12 @@ class AssistantController(private val context: Context, private val scope: Corou
     /** Tool-free answer from the saved excerpts of earlier sources; their cards return under their original numbers. */
     private suspend fun answerFromSavedSources(
         text: String, history: List<ChatTurn>, resolved: SourceFollowUp.Resolved, tokenBudget: Int,
-        turn: Long, id: Int, onResponse: suspend (String) -> Unit,
+        turn: Long, id: Int, memoryBlock: String, onResponse: suspend (String) -> Unit,
     ): Boolean = SourceFollowUp.answer(
         text, history, resolved, tokenBudget,
         unverifiedReply = context.getString(R.string.assistant_source_unverified),
         unverifiedWarning = context.getString(R.string.assistant_source_warning),
-        infer = ::inferSavedText,
+        infer = { system, h, content -> inferSavedText(system, h, content, memoryBlock) },
         onResolved = { provider, sources, numbers ->
             withContext(Dispatchers.Main.immediate) { if (id == generation) chat.searchDetails(turn, sources, "", numbers, provider) }
         },
@@ -344,10 +458,10 @@ class AssistantController(private val context: Context, private val scope: Corou
         onResponse = onResponse,
     )
 
-    private suspend fun inferSavedText(system: String, history: List<ChatTurn>, content: String): String = withEngine(selected) {
+    private suspend fun inferSavedText(system: String, history: List<ChatTurn>, content: String, memoryBlock: String = ""): String = withEngine(selected) {
         val current = engine!!.createConversation(ConversationConfig(
             tools = emptyList(), automaticToolCalling = false,
-            systemInstruction = Contents.of(listOf(Content.Text(modelSavedInstructions(selected, system)))),
+            systemInstruction = Contents.of(listOf(Content.Text(systemWithMemory(modelSavedInstructions(selected, system), memoryBlock)))),
             initialMessages = historyMessages(history), maxOutputToken = CHAT_OUTPUT_TOKENS, extraContext = selected.extraContext,
             samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 0),
         ))
@@ -369,7 +483,10 @@ class AssistantController(private val context: Context, private val scope: Corou
         listOf(Message.user(it.request), Message.model(historyResponse(it, historySourceTokens(history, it))))
     }
 
-    /** Each inference step can retry on CPU; true means a nonblank final Wikipedia response with current-turn sources. Network requests stay outside retries. */
+    /**
+     * Web/Wikipedia manual tool loop ([runWebTurn]); each inference step can retry on CPU. [memoryBlock] reaches only tool-free passes.
+     * True means a nonblank final Wikipedia response with current-turn sources.
+     */
     internal suspend fun inferWebChat(
         text: String, history: List<ChatTurn> = emptyList(),
         search: suspend (String) -> List<WebSource> = TavilySearch::search,
@@ -379,132 +496,39 @@ class AssistantController(private val context: Context, private val scope: Corou
             CHAT_INPUT_TOKENS - estimateTokens(text) - usedHistoryTokens(history)),
         source: ChatSource = ChatSource.WEB,
         wikipediaReader: () -> WikipediaReader = { WikipediaReader() },
+        memoryBlock: String = "",
         onResponse: suspend (String) -> Unit,
-    ): Boolean {
-        require(source != ChatSource.NONE)
-        val wiki = source == ChatSource.WIKIPEDIA
-        val wikiTurn = if (wiki) WikipediaTurn(wikipediaReader()) else null
-        val transcript = historyMessages(history).toMutableList()
-        val sources = mutableListOf<WebSource>()
-        var warning = ""
-        var next = Message.user(text)
-        val now = ZonedDateTime.now()
-        val webInstructions = if (wiki) WIKIPEDIA_INSTRUCTIONS + "\nCurrent local date: ${now.toLocalDate()}." else webInstructions(now)
-        val resultBudget = minOf(webBudget, MAX_WEB_CONTEXT_TOKENS,
-            CHAT_INPUT_TOKENS - estimateTokens(text) - usedHistoryTokens(history)) / 2
-        // CHAT_INPUT_TOKENS already reserves 512 tokens; reserve 512 more for the dual schema/instructions.
-        val wikiBudget = wikipediaContextTokens(text, history, webBudget)
-        var wikiSpent = 0
-        for (step in 0..2) {
-            currentCoroutineContext().ensureActive()
-            val allowSearch = step < 2 && warning.isBlank()
-            val reply = if (inferStep != null) inferStep(transcript, next, allowSearch) else withEngine(selected) {
-                val current = engine!!.createConversation(ConversationConfig(
-                    tools = if (!allowSearch) emptyList() else if (wiki) listOf(tool(WikipediaSearch.tools(firstLookup = step == 0))) else listOf(tool(WebSearchTools())), automaticToolCalling = false,
-                    systemInstruction = Contents.of(listOf(Content.Text(modelRetrievalInstructions(selected, webInstructions, source, step == 0) +
-                        if (!allowSearch) if (wiki) "\nNo more retrievals. Use only this turn's evidence; if insufficient, say so or ask for clarification. Never use offline knowledge." else "\nNo more searches are available. Answer now. If search failed, use only offline knowledge and explicitly state that it was not verified." else ""))),
-                    initialMessages = transcript, maxOutputToken = CHAT_OUTPUT_TOKENS, extraContext = selected.extraContext,
-                    samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 0),
-                ))
-                conversation = current
-                try {
-                    val incoming = next.contents.contents.filterIsInstance<Content.Text>().sumOf { estimateTokens(it.text) } +
-                        next.contents.contents.filterIsInstance<Content.ToolResponse>().sumOf { estimateTokens(it.response.toString()) }
-                    val tokens = current.getTokenCount()
-                    requireWebContextFits(tokens, incoming)
-                    val response = WebReplyBuffer()
-                    val calls = mutableListOf<ToolCall>()
-                    current.sendMessageAsync(next).collect { message ->
-                        calls += message.toolCalls
-                        response.append(message.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text })
-                        // Buffer all web output, including split markers on the final pass.
-                    }
-                    currentCoroutineContext().ensureActive()
-                    lastTokenCount = current.getTokenCount()
-                    Message.model(Contents.of(listOf(Content.Text(stripThinking(response.result())))), calls)
-                } finally { conversation = null; current.close() }
+    ): Boolean = runWebTurn(
+        WebTurnEnv(selected, { context.getString(it) }, { spec ->
+            if (inferStep != null) inferStep(spec.transcript, spec.next, spec.allowSearch) else webPass(spec)
+        }),
+        text, history, historyMessages(history), search, onDetails, webBudget, source, wikipediaReader, memoryBlock, onResponse,
+    )
+
+    private suspend fun webPass(spec: PassSpec): Message = withEngine(selected) {
+        val current = engine!!.createConversation(ConversationConfig(
+            tools = if (!spec.allowSearch) emptyList() else if (spec.wiki) listOf(tool(WikipediaSearch.tools(firstLookup = spec.firstLookup))) else listOf(tool(WebSearchTools())), automaticToolCalling = false,
+            systemInstruction = Contents.of(listOf(Content.Text(spec.system))),
+            initialMessages = spec.transcript, maxOutputToken = CHAT_OUTPUT_TOKENS, extraContext = selected.extraContext,
+            samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 0),
+        ))
+        conversation = current
+        try {
+            val incoming = spec.next.contents.contents.filterIsInstance<Content.Text>().sumOf { estimateTokens(it.text) } +
+                spec.next.contents.contents.filterIsInstance<Content.ToolResponse>().sumOf { estimateTokens(it.response.toString()) }
+            val tokens = current.getTokenCount()
+            requireWebContextFits(tokens, incoming)
+            val response = WebReplyBuffer()
+            val calls = mutableListOf<ToolCall>()
+            current.sendMessageAsync(spec.next).collect { message ->
+                calls += message.toolCalls
+                response.append(message.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text })
+                // Buffer all web output (never streamed): a tool-enabled draft may still be discarded by the memory privacy gate.
             }
             currentCoroutineContext().ensureActive()
-            val replyText = stripThinking(reply.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text })
-            val recoveredCall = if (allowSearch && reply.toolCalls.isEmpty()) {
-                if (wiki) WikipediaSearch.recoveredCall(replyText)
-                else WebToolText.query(replyText)?.let { ToolCall("search_web", mapOf("query" to it)) }
-            } else null
-            val invalidOutput = (!allowSearch && reply.toolCalls.isNotEmpty()) ||
-                (reply.toolCalls.isNotEmpty() && replyText.isNotBlank()) ||
-                (recoveredCall == null && (WebToolText.suspicious(replyText) ||
-                    (wiki && replyText.contains("call:read_wikipedia_sections", ignoreCase = true))))
-            if (invalidOutput) {
-                warning = if (wiki) WikipediaSearch.WARNING else context.getString(R.string.assistant_search_request_error)
-                onDetails(sources.toList(), warning)
-                onResponse(if (wiki) WikipediaSearch.INABILITY else "Web search request was rejected. Please try again.")
-                return false
-            }
-            val effectiveReply = if (recoveredCall != null) Message.model(Contents.of(emptyList()), listOf(recoveredCall)) else reply
-            if (effectiveReply.toolCalls.isEmpty()) {
-                if (wiki && (sources.isEmpty() || !WikipediaSearch.citationsResolve(replyText, sources.size))) {
-                    warning = WikipediaSearch.WARNING
-                    onDetails(sources.toList(), warning)
-                    onResponse(WikipediaSearch.INABILITY)
-                    return false
-                } else {
-                    onResponse(replyText)
-                    return wiki && sources.isNotEmpty() && replyText.isNotBlank()
-                }
-            }
-            require(allowSearch) { "Search budget exhausted" }
-            transcript += next
-            transcript += effectiveReply
-            var toolResult: Map<String, String>
-            val call = effectiveReply.toolCalls.singleOrNull()
-            try {
-                if (call == null) throw WebSearchFailure(WebSearchFailure.Reason.REQUEST)
-                if (wiki) {
-                    // Count complete arguments, model/tool framing and all earlier retrieval messages.
-                    wikiSpent += wikipediaCallTokens(call)
-                    val allowance = wikiBudget - wikiSpent
-                    toolResult = wikiTurn!!.execute(call, if (call.name == "query_wikipedia") minOf(1100, allowance) else allowance)
-                    wikiSpent += estimateTokens(toolResult.toString())
-                    sources.clear(); sources += wikiTurn.sources
-                    if (wikiTurn.partial) warning = "Wikipedia section evidence is partial or unavailable; unsupported details were not verified."
-                } else {
-                    if (call.name != "search_web" || call.arguments.keys != setOf("query"))
-                        throw WebSearchFailure(WebSearchFailure.Reason.REQUEST)
-                    val query = call.arguments["query"] as? String ?: throw WebSearchFailure(WebSearchFailure.Reason.REQUEST)
-                    TavilySearch.validateQuery(query)
-                    if (sources.size >= TavilySearch.MAX_REPLY_RESULTS) {
-                        toolResult = mapOf("notice" to "The ten-source reply limit is full. Use only previously supplied evidence or say it is insufficient.")
-                    } else {
-                        val found = search(query)
-                        currentCoroutineContext().ensureActive()
-                        if (found.isEmpty()) throw WebSearchFailure(WebSearchFailure.Reason.RESULTS)
-                        val candidates = TavilySearch.selectNewsSources(text, query, found)
-                        val selection = TavilySearch.selectReplySources(sources, candidates)
-                        if (selection.evidence.isEmpty()) throw WebSearchFailure(WebSearchFailure.Reason.RESULTS)
-                        val bounded = boundedWebToolResult(selection.evidence, selection.numbers, now, resultBudget, source)
-                        sources.clear(); sources += selection.displayed
-                        toolResult = bounded.response
-                    }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            }
-            catch (e: Exception) {
-                val reason = (e as? WebSearchFailure)?.reason
-                warning = if (wiki) "Wikipedia retrieval failed; only previously published evidence from this turn is available. Missing section facts are unverified." else context.getString(when (reason) {
-                    WebSearchFailure.Reason.KEY -> R.string.assistant_search_key_error
-                    WebSearchFailure.Reason.LIMIT -> R.string.assistant_search_limit_error
-                    WebSearchFailure.Reason.RESULTS -> R.string.assistant_search_results_error
-                    WebSearchFailure.Reason.REQUEST -> R.string.assistant_search_request_error
-                    else -> R.string.assistant_search_network_error
-                })
-                toolResult = mapOf("error" to if (wiki) "Retrieval failed. Only earlier evidence from THIS turn may be used. Missing section facts are unverified; state insufficiency. No offline knowledge." else "Search failed. Do not claim fresh verification. Answer from offline knowledge with a warning.")
-            }
-            onDetails(sources.toList(), warning)
-            // Invalid/parallel proposals are never dispatched; each gets an error response.
-            next = Message.tool(Contents.of(effectiveReply.toolCalls.map { Content.ToolResponse(it.name, toolResult) }))
-        }
-        return false
+            lastTokenCount = current.getTokenCount()
+            Message.model(Contents.of(listOf(Content.Text(stripThinking(response.result())))), calls)
+        } finally { conversation = null; current.close() }
     }
 
     private fun startEngine(model: AssistantModel, gpu: Boolean): Engine {
@@ -530,7 +554,7 @@ class AssistantController(private val context: Context, private val scope: Corou
     private fun unload() { scope.launch(Dispatchers.IO) { engineLock.withLock { engine?.close(); engine = null; loaded = null } } }
     fun close() {
         prefs.unregisterOnSharedPreferenceChangeListener(listener)
-        cancel(); chat.clear()
+        cancel(); chat.clear(); memoryConnectivity.unregister()
         CoroutineScope(Dispatchers.IO).launch { engineLock.withLock { engine?.close(); engine = null; loaded = null } }
     }
 
@@ -557,6 +581,8 @@ class AssistantController(private val context: Context, private val scope: Corou
             return ":nocache"
         }
 
+        private val SYNC_AFTER = setOf(NoteKind.SAVED, NoteKind.DELETED, NoteKind.ERASED)
+        internal const val MEMORY_SUBJECT_INSTRUCTIONS = "You label notes. Reply with only the requested JSON, no other text, no thinking traces."
         internal const val CONTEXT_TOKENS = 4096
         internal const val CHAT_OUTPUT_TOKENS = 512
         internal const val CHAT_INPUT_TOKENS = CONTEXT_TOKENS - CHAT_OUTPUT_TOKENS - 512
