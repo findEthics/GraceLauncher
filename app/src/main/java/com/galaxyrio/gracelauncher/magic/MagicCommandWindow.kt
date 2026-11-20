@@ -218,9 +218,9 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
             SmsOutcome.Queued -> { c.showSavedPill(resources.getString(R.string.magic_sms_queued)); c.close() }
             SmsOutcome.Unknown -> s.status = resources.getString(R.string.magic_sms_uncertain)
             SmsOutcome.NoSim, SmsOutcome.Unavailable -> {
-                val result = actions.messaging.openPreferredMessageDraft(draft.recipient, draft.body, null)
-                handoff(result != PreferredMessageDraftResult.FAILED)
-                s.status = resources.getString(R.string.magic_sms_fallback)
+                val opened = actions.messaging.openPreferredMessageDraft(draft.recipient, draft.body, null) != PreferredMessageDraftResult.FAILED
+                handoff(opened)
+                if (opened) s.status = resources.getString(R.string.magic_sms_fallback)
             }
         }
     }
@@ -342,14 +342,16 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
     val parsed = remember(s.input.text, language) {
         CalendarPhraseEngine.parse(CalendarParseRequest(s.input.text, eventTitle, language))
     }
-    val alarm = if (s.kind == MagicKind.Alarm) MagicAlarmCommand.parse(s.input.text, language) else null
+    val alarm = if (s.kind == MagicKind.Alarm) MagicAlarmCommand.parse(s.input.text) else null
     fun openCalendar(draft: CalendarDraft) { if (active() && s.claim()) handoff(actions.calendar(draft)) }
     val selectedIndex = if (s.kind == MagicKind.Note) s.selectedIndex else highlight
     val submit = {
         if (c.session === s && !s.consumed) when {
             s.kind == MagicKind.Alarm -> {
-                val command = MagicAlarmCommand.parse(s.input.text, language)
+                val command = MagicAlarmCommand.parse(s.input.text)
                 if (command == null) s.status = resources.getString(R.string.magic_alarm_status_invalid)
+                else if (command is MagicAlarmCommand.WrongDay) s.status = resources.getString(R.string.magic_alarm_wrong_day,
+                    command.hour, command.minute, resources.getString(if (command.tomorrow) R.string.magic_alarm_tomorrow else R.string.magic_alarm_today))
                 else if (active() && s.claim()) {
                     if (actions.alarm(command)) {
                         c.close()
@@ -510,7 +512,10 @@ private fun MagicCommandContent(c: MagicController, s: MagicSession, apps: List<
                                     Text(stringResource(R.string.magic_calendar_review), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                             }
                             if (alarm != null) Text(when (alarm) {
-                                is MagicAlarmCommand.Alarm -> stringResource(R.string.magic_alarm_preview, alarm.hour, alarm.minute)
+                                is MagicAlarmCommand.Alarm -> stringResource(R.string.magic_alarm_preview, alarm.hour, alarm.minute,
+                                    stringResource(if (alarm.tomorrow) R.string.magic_alarm_tomorrow else R.string.magic_alarm_today))
+                                is MagicAlarmCommand.WrongDay -> stringResource(R.string.magic_alarm_wrong_day, alarm.hour, alarm.minute,
+                                    stringResource(if (alarm.tomorrow) R.string.magic_alarm_tomorrow else R.string.magic_alarm_today))
                                 is MagicAlarmCommand.Timer -> stringResource(R.string.magic_timer_preview, alarm.seconds / 60, alarm.seconds % 60)
                             }, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("magic_alarm_preview"))
                             if (s.status.isNotBlank()) Text(s.status, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("magic_status"))

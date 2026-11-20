@@ -28,6 +28,33 @@ class HealthEvidenceTest {
         assertFalse(e.contains("resting HR 0"))
     }
 
+    @Test fun missingAggregatesHaveNoInventedZerosOrQualityFlags() {
+        for (stats in listOf("null", "{}", """{"avg":null,"min":null,"max":null,"count":0}""",
+            """{"avg":null,"min":0,"max":250,"count":3}""",
+            """{"avg":7,"min":0,"max":250,"count":0}""")) {
+            val e = build(chat(window(steps = stats, hr = stats,
+                sleep = """{"nightly_stats":$stats,"rolling_avg":7.2}""")))
+            for (metric in listOf("steps", "sleep", "resting HR")) {
+                assertTrue(e.text, e.text.contains("$metric no data"))
+                assertFalse(e.details, e.details.contains("7d $metric:"))
+                assertFalse(e.details, e.details.contains("7d $metric sparse"))
+            }
+        }
+    }
+
+    @Test fun averageOnlyAggregatesOmitMissingExtremaAndKeepRollingSleep() {
+        val e = build(chat(window(steps = """{"avg":7412,"min":null,"max":null,"count":6}""",
+            hr = """{"avg":60,"count":6}""",
+            sleep = """{"nightly_stats":{"avg":7,"count":5},"rolling_avg":7.2}""")).apply {
+                getJSONObject("windows").remove("30d")
+            })
+        assertTrue(e.text, e.text.contains("steps avg 7412 over 6 days"))
+        assertTrue(e.text, e.text.contains("sleep nightly avg 7.0 h (5 nights), rolling 7d avg 7.2 h"))
+        assertTrue(e.text, e.text.contains("resting HR avg 60 bpm"))
+        assertFalse(e.text, e.text.contains(" min ") || e.text.contains(" max "))
+        assertFalse(e.details, e.details.contains("a recorded 0-step") || e.details.contains("suspicious nightly") || e.details.contains("resting HR: data-quality"))
+    }
+
     @Test fun dataQualityFlagsFireAtThresholds() {
         fun flags(hr: String = "null", steps: String = """{"avg":5000.0,"min":3000.0,"max":9000.0,"count":6}""",
                   sleep: String = """{"rolling_avg":null,"nightly_stats":{"avg":7.0,"min":6.0,"max":8.0,"count":5}}""", weight: String = "null") =

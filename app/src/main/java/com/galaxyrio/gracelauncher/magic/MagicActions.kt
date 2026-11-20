@@ -130,6 +130,7 @@ internal class MagicActions(private val context: Context) {
 }
 
 internal fun magicAlarmIntent(command: MagicAlarmCommand): Intent = when (command) {
+    is MagicAlarmCommand.WrongDay -> error("Wrong-day alarms cannot be dispatched")
     is MagicAlarmCommand.Alarm -> Intent(AlarmClock.ACTION_SET_ALARM).apply {
         putExtra(AlarmClock.EXTRA_HOUR, command.hour)
         putExtra(AlarmClock.EXTRA_MINUTES, command.minute)

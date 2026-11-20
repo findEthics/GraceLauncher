@@ -100,27 +100,38 @@ internal object HealthEvidence {
         }
         val steps = metric("steps", "steps") {
             w.optJSONObject("steps")?.let { s ->
-                val min = s.num("min") ?: 0.0
-                val flag = if (min <= 0.0) " [flag: a recorded 0-step day, possibly not worn]".also { flags += "$label steps: a recorded 0-step day, possibly not worn" } else ""
-                "steps avg ${i0(s.num("avg") ?: 0.0)} min ${i0(min)} max ${i0(s.num("max") ?: 0.0)} over ${s.optInt("count")} days" to flag
+                if (s.optInt("count") == 0) return@let null
+                val avg = s.num("avg") ?: return@let null
+                val min = s.num("min")
+                val flag = if (min != null && min <= 0.0) " [flag: a recorded 0-step day, possibly not worn]".also { flags += "$label steps: a recorded 0-step day, possibly not worn" } else ""
+                val extrema = listOfNotNull(min?.let { " min ${i0(it)}" }, s.num("max")?.let { " max ${i0(it)}" }).joinToString("")
+                "steps avg ${i0(avg)}$extrema over ${s.optInt("count")} days" to flag
             }
         }
         val sleepObj = w.optJSONObject("sleep_hours")
         val sleep = metric("sleep", "sleep") {
             sleepObj?.optJSONObject("nightly_stats")?.let { s ->
-                val min = s.num("min") ?: 0.0
-                val max = s.num("max") ?: 0.0
-                val flag = if (min < 1 || max > 16) " [flag: suspicious nightly sleep value]".also { flags += "$label sleep: suspicious nightly value (<1 h or >16 h)" } else ""
+                if (s.optInt("count") == 0) return@let null
+                val avg = s.num("avg") ?: return@let null
+                val min = s.num("min")
+                val max = s.num("max")
+                val flag = if ((min != null && min < 1) || (max != null && max > 16)) " [flag: suspicious nightly sleep value]".also { flags += "$label sleep: suspicious nightly value (<1 h or >16 h)" } else ""
                 val rolling = sleepObj.num("rolling_avg")?.let { ", rolling 7d avg ${f1(it)} h" } ?: ""
-                "sleep nightly avg ${f1(s.num("avg") ?: 0.0)} h (min ${f1(min)} max ${f1(max)}, ${s.optInt("count")} nights)$rolling" to flag
+                val extrema = listOfNotNull(min?.let { "min ${f1(it)}" }, max?.let { "max ${f1(it)}" }).joinToString(" ")
+                    .let { if (it.isEmpty()) "" else "$it, " }
+                "sleep nightly avg ${f1(avg)} h ($extrema${s.optInt("count")} nights)$rolling" to flag
             }
         }
         val hr = metric("resting HR", "resting_hr") {
             w.optJSONObject("resting_hr")?.let { s ->
-                val min = s.num("min") ?: 0.0
-                val max = s.num("max") ?: 0.0
-                val flag = if (min < 30 || max > 200) " [flag: data-quality problem, do not interpret]".also { flags += "$label resting HR: data-quality problem, do not interpret" } else ""
-                "resting HR avg ${i0(s.num("avg") ?: 0.0)} bpm (min ${i0(min)} max ${i0(max)}, ${s.optInt("count")} days)" to flag
+                if (s.optInt("count") == 0) return@let null
+                val avg = s.num("avg") ?: return@let null
+                val min = s.num("min")
+                val max = s.num("max")
+                val flag = if ((min != null && min < 30) || (max != null && max > 200)) " [flag: data-quality problem, do not interpret]".also { flags += "$label resting HR: data-quality problem, do not interpret" } else ""
+                val extrema = listOfNotNull(min?.let { "min ${i0(it)}" }, max?.let { "max ${i0(it)}" }).joinToString(" ")
+                    .let { if (it.isEmpty()) "" else "$it, " }
+                "resting HR avg ${i0(avg)} bpm ($extrema${s.optInt("count")} days)" to flag
             }
         }
         val weight = metric("weight", "weight") {
