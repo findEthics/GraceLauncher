@@ -1,5 +1,11 @@
 # Tasks
 
+## Current 2026-11-21 Slash popup Enter fix + signed release 1.2.14/22 (5558 smoke PASS; Titan unverified)
+- All Enter paths (raw key, IME Send, IME-committed single newline, Activity-level fallback via `AssistantChatState.onEnter`) now apply the highlighted `/` row when the popup is open, else send; `isSingleNewlineInsertion` reused from magic. Commit `63876d5`.
+- RED→GREEN on 5590: `slashImeSendAppliesHighlightedRowInsteadOfSubmitting`, `slashSingleNewlineInsertionAppliesRow`, `slashActivityEnterFallbackUsesRegisteredHandler`; `AssistantUiTest` 29 run, only the 3 accepted pre-existing failures; JVM 486/486, lintDebug, both debug builds PASS.
+- Release `app/build/reports/release-1.2.14/GraceLauncher-1.2.14-signed.apk`, 59,753,501 B, SHA-256 `ec5bdab8ed5b0e83fdfac99fabfbfd58ee6daeeb3bef194ee347cdc4b37767b5`, cert `7c928de3…`; v2/v3, P16, badging 1.2.14/22 non-debuggable, DEX keeps OK. `install -r` on 5558: `/wi`+Enter → Wikipedia chip, nothing sent; plain chat, Web OK; 0 crash markers. Evidence `release-1.2.14/summary.md`.
+- Open: user install on Titan to confirm; adb ENTER is a raw key (IME path covered by Compose tests only); visual QA; native ELF 16KB.
+
 ## Current 2026-11-20 Signed release 1.2.13/21 built from clean HEAD 9356fcd, installed on 5558; release smoke 1–8 PASS (5558 only)
 - APK `app/build/reports/release-1.2.13/GraceLauncher-1.2.13-signed.apk`, 59,753,501 B, SHA-256 `dac2d5b9e7068734cbc80aa17202c0e95f6b32a4826cb62a8c8fe598c7d6466a`, cert `7c928de3…`; v2/v3, P16 zipalign, badging 1.2.13/21 non-debuggable, DEX keeps verified. Source: clean HEAD `9356fcd` (memory base `5f367b9`, bump `15e4406`, docs `9356fcd`); JVM 486/486 + `lintDebug` PASS on that tree.
 - 5558: `install -r` over 1.2.12 (data/model/Health token kept; base.apk SHA-256 matches). Smoke: Home/Space chat, plain chat, Web+sources, Wikipedia+sources, Health Live card, memory remember→sync→recall→Forget→Purge→sync, `/` popup, `/web`/`/wikipedia` chips, Recall chip, "Sync memory now", 3 help toggles; logcat dump (whole run) has no FATAL/NoSuchMethodError/SIGABRT. Details `app/build/reports/release-1.2.13/summary.md`.
