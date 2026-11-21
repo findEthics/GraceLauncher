@@ -41,6 +41,8 @@ class AssistantChatState {
     var webSearchEnabled: Boolean
         get() = source == ChatSource.WEB
         set(value) { source = if (value) ChatSource.WEB else ChatSource.NONE }
+    /** Registered by the visible composer so the Activity-level Enter fallback runs the same slash-or-send logic. */
+    internal var onEnter: (() -> Unit)? = null
     private var nextId = 0L // Never reuse an id after Close; late completions cannot enter the new chat.
 
     fun open() { visible = true }

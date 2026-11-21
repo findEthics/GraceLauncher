@@ -50,6 +50,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.galaxyrio.gracelauncher.R
 import com.galaxyrio.gracelauncher.assistant.memory.*
+import com.galaxyrio.gracelauncher.magic.isSingleNewlineInsertion
 import kotlinx.coroutines.launch
 import java.net.URI
 
@@ -161,6 +162,10 @@ internal fun AssistantChatWindow(
     val slashRows = if (slashDismissed) emptyList() else slashSuggestions(chat.draft, healthAvailable)
     val slashSelected = slashIndex.coerceIn(0, (slashRows.size - 1).coerceAtLeast(0))
     val slashDescription = stringResource(R.string.slash_popup)
+    // Every Enter path (raw key, IME Send, IME-committed newline, Activity fallback) applies the highlighted row first, like the magic panels.
+    val enter = { if (slashRows.isNotEmpty()) applySlash(chat, slashRows[slashSelected]) else send() }
+    SideEffect { chat.onEnter = enter }
+    DisposableEffect(chat) { onDispose { chat.onEnter = null } }
     Surface(Modifier.fillMaxSize().testTag("assistant_chat_window")) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
             if (chat.contextDropped) Text(stringResource(R.string.assistant_context_rolled), Modifier.padding(16.dp).testTag("assistant_context_notice"), style = MaterialTheme.typography.bodySmall)
@@ -254,13 +259,14 @@ internal fun AssistantChatWindow(
                     }
                 }
                 OutlinedTextField(
-                    value = chat.input, onValueChange = { chat.input = it },
+                    value = chat.input,
+                    onValueChange = { if (slashRows.isNotEmpty() && isSingleNewlineInsertion(chat.input.text, it.text)) enter() else chat.input = it },
                     modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { onFocus(it.isFocused) }
                         .semantics { contentDescription = messageDescription }
                         .testTag("assistant_chat_input").onPreviewKeyEvent { event ->
-                            val enter = event.key == Key.Enter || event.key == Key.NumPadEnter
+                            val isEnter = event.key == Key.Enter || event.key == Key.NumPadEnter
                             val popupKey = slashRows.isNotEmpty() && (event.key == Key.DirectionUp || event.key == Key.DirectionDown ||
-                                event.key == Key.Tab || event.key == Key.Escape || (enter && !event.isShiftPressed))
+                                event.key == Key.Tab || event.key == Key.Escape || (isEnter && !event.isShiftPressed))
                             if (popupKey) {
                                 if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
                                     val last = slashRows.lastIndex
@@ -269,24 +275,24 @@ internal fun AssistantChatWindow(
                                         Key.DirectionDown -> slashIndex = (slashSelected + 1).coerceAtMost(last)
                                         Key.Tab -> slashIndex = if (event.isShiftPressed) (slashSelected + last) % (last + 1) else (slashSelected + 1) % (last + 1)
                                         Key.Escape -> slashDismissed = true
-                                        else -> applySlash(chat, slashRows[slashSelected])
+                                        else -> enter()
                                     }
                                 }
                                 true
-                            } else if (!enter) false
+                            } else if (!isEnter) false
                             else {
                                 if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
                                     if (event.isShiftPressed) {
                                         val value = chat.input
                                         val start = value.selection.min
                                         chat.input = TextFieldValue(value.text.replaceRange(start, value.selection.max, "\n"), TextRange(start + 1))
-                                    } else send()
+                                    } else enter()
                                 }
                                 true // Consume both down and up; neither may insert a second newline/send.
                             }
                         },
                     shape = RoundedCornerShape(28.dp), maxLines = 5,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { enter() }),
                     leadingIcon = {
                         Box {
                             IconButton(onClick = { toolsExpanded = true }, modifier = Modifier.testTag("assistant_tools")) {

@@ -148,7 +148,7 @@ class AssistantController(private val context: Context, private val scope: Corou
         // Preserve fast typing between opening the overlay and its first focus/layout pass.
         if (chat.visible && !composerEverFocused && !event.isCtrlPressed && !event.isMetaPressed) {
             if (event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
-                if (event.repeatCount == 0) { if (event.isShiftPressed) chat.draft += "\n" else submit() }
+                if (event.repeatCount == 0) { if (event.isShiftPressed) chat.draft += "\n" else chat.onEnter?.invoke() ?: submit() }
                 return true
             }
             if (character != 0 && Character.isValidCodePoint(character) && !Character.isISOControl(character)) {

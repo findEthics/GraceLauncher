@@ -531,6 +531,34 @@ class AssistantUiTest {
         compose.runOnIdle { assertEquals("/\n", chat.draft); assertEquals(1, sends) }
     }
 
+    @Test fun slashImeSendAppliesHighlightedRowInsteadOfSubmitting() {
+        var sends = 0
+        val chat = slashChat(onSend = { sends++ })
+        compose.onNodeWithTag("assistant_chat_input").performTextInput("/wi")
+        compose.onNodeWithTag("assistant_chat_input").performImeAction()
+        compose.runOnIdle { assertEquals(0, sends); assertEquals(ChatSource.WIKIPEDIA, chat.source); assertEquals("", chat.draft) }
+        compose.onNodeWithTag("assistant_wikipedia_chip").assertIsSelected()
+    }
+
+    @Test fun slashSingleNewlineInsertionAppliesRow() {
+        var sends = 0
+        val chat = slashChat(onSend = { sends++ })
+        compose.onNodeWithTag("assistant_chat_input").performTextInput("/wi")
+        compose.onNodeWithTag("assistant_chat_input").performTextReplacement("/wi\n")
+        compose.runOnIdle { assertEquals(0, sends); assertEquals(ChatSource.WIKIPEDIA, chat.source); assertEquals("", chat.draft) }
+        // Popup hidden: a bare newline is still stored as text.
+        compose.onNodeWithTag("assistant_chat_input").performTextInput("a\n")
+        compose.runOnIdle { assertEquals("a\n", chat.draft) }
+    }
+
+    @Test fun slashActivityEnterFallbackUsesRegisteredHandler() {
+        var sends = 0
+        val chat = slashChat(onSend = { sends++ })
+        compose.onNodeWithTag("assistant_chat_input").performTextInput("/wi")
+        compose.runOnIdle { chat.onEnter!!.invoke() }
+        compose.runOnIdle { assertEquals(0, sends); assertEquals(ChatSource.WIKIPEDIA, chat.source); assertEquals("", chat.draft) }
+    }
+
     @Test fun recallChipIsInMenuAndAllowsEmptySubmit() {
         var sends = 0
         val chat = slashChat(onSend = { sends++ })
